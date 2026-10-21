@@ -1,0 +1,505 @@
+"""Composes and mixes the Motion Crackers launch track from real recorded samples.
+
+120 BPM, E dorian. Every hit is placed on the same cue times the video uses
+(see video/index.html), so picture and music share one grid.
+
+Sources (all CC0): Virtuosity Drums, Karoryfer Black And Blue Basses,
+Karoryfer Black And Green Guitars, Karoryfer Bear Sax, VCSL percussion.
+
+usage: python tools/music.py <samples_dir> <out.wav>
+"""
+import glob, os, subprocess, sys
+import numpy as np
+import soundfile as sf
+from scipy import signal
+
+SR = 48000
+DUR = 15.0
+BEAT = 0.5
+S16 = BEAT / 4
+
+ROOT = sys.argv[1]
+OUT = sys.argv[2]
+rand = np.random.default_rng(11)
+
+NAMES = ["c", "db", "d", "eb", "e", "f", "gb", "g", "ab", "a", "bb", "b"]
+
+
+def nn(midi):
+    return f"{NAMES[midi % 12]}{midi // 12 - 1}"
+
+
+def M(name):
+    """'E2' -> 40"""
+    name = name.lower()
+    base = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}[name[0]]
+    rest = name[1:]
+    if rest.startswith("#"):
+        base += 1; rest = rest[1:]
+    elif rest.startswith("b") and len(rest) > 1:
+        base -= 1; rest = rest[1:]
+    return base + (int(rest) + 1) * 12
+
+
+# ---------------------------------------------------------------- samples
+_cache = {}
+
+
+def load(path):
+    if path in _cache:
+        return _cache[path]
+    try:
+        x, sr = sf.read(path, always_2d=True, dtype="float32")
+    except sf.LibsndfileError:
+        # a few files use a WAVE_FORMAT_EXTENSIBLE variant libsndfile rejects; decode with ffmpeg
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-f", "f32le", "-ac", "2", "-ar", str(SR), "-"], capture_output=True, check=True).stdout
+        x, sr = np.frombuffer(raw, np.float32).reshape(-1, 2).copy(), SR
+    if x.shape[1] == 1:
+        x = np.repeat(x, 2, axis=1)
+    if sr != SR:
+        g = np.gcd(SR, sr)
+        x = signal.resample_poly(x, SR // g, sr // g, axis=0).astype(np.float32)
+    # trim to the attack so hits land exactly on the grid
+    env = np.abs(x).max(1)
+    pk = env.max() + 1e-9
+    on = int(np.argmax(env > pk * 0.03))
+    on = max(0, on - int(0.002 * SR))
+    x = x[on:]
+    fade = min(len(x), int(0.0015 * SR))
+    x[:fade] *= np.linspace(0, 1, fade)[:, None]
+    _cache[path] = x
+    return x
+
+
+def pick(pattern, i=None):
+    files = sorted(glob.glob(os.path.join(ROOT, pattern)))
+    if not files:
+        raise FileNotFoundError(pattern)
+    if i is None:
+        i = int(rand.integers(len(files)))
+    # a few takes in the source libraries are corrupt; fall back to a sibling round-robin
+    for k in range(len(files)):
+        path = files[(i + k) % len(files)]
+        if path in BAD:
+            continue
+        try:
+            return load(path)
+        except (sf.LibsndfileError, subprocess.CalledProcessError):
+            BAD.add(path)
+    raise FileNotFoundError(f"no readable take for {pattern}")
+
+
+BAD = set()
+
+
+# ---------------------------------------------------------------- buses
+def bus():
+    return np.zeros((int(DUR * SR) + SR * 3, 2), np.float32)
+
+
+B = {k: bus() for k in ["kick", "snare", "hats", "perc", "bass", "gtr", "sax", "fx"]}
+
+
+def place(name, x, t, gain=1.0, pan=0.0, length=None, release=0.04):
+    if length is not None:
+        n = min(len(x), int(length * SR))
+        y = x[:n].copy()
+        r = min(n, int(release * SR))
+        y[n - r:] *= np.linspace(1, 0, r)[:, None] ** 2
+    else:
+        y = x
+    l = np.cos((pan + 1) * np.pi / 4) * np.sqrt(2)
+    r_ = np.sin((pan + 1) * np.pi / 4) * np.sqrt(2)
+    i = int(round(t * SR))
+    if i < 0:
+        y = y[-i:]; i = 0
+    j = min(len(B[name]), i + len(y))
+    B[name][i:j, 0] += y[: j - i, 0] * gain * l
+    B[name][i:j, 1] += y[: j - i, 1] * gain * r_
+
+
+def hum(ms=4):
+    return float(rand.normal(0, ms / 1000))
+
+
+# ---------------------------------------------------------------- instruments
+VD = "virtuosity_drums/Samples/"
+
+
+def kick(t, v=4, g=1.0):
+    rr = int(rand.integers(1, 5))
+    place("kick", pick(f"{VD}kickmic/kick/kickmic_kick_snoff_vl{v}_rr{rr}.flac"), t, 0.9 * g)
+    place("kick", pick(f"{VD}mid/kick/mid_kick_snoff_vl{v}_rr{rr}.flac"), t, 0.9 * g)
+    place("kick", pick(f"{VD}room/kick/room_kick_snoff_vl{v}_rr{rr}.flac"), t, 0.45 * g)
+
+
+def snare(t, v=30, g=1.0, art="center"):
+    place("snare", pick(f"{VD}snaremic/snare/snaremic_snare_{art}_vl{v}.flac"), t, 0.55 * g)
+    place("snare", pick(f"{VD}mid/snare/mid_snare_{art}_vl{v}.flac"), t, 0.8 * g)
+    place("snare", pick(f"{VD}room/snare/room_snare_{art}_vl{v}.flac"), t, 0.5 * g)
+
+
+def hat(t, v=3, g=1.0, kind="closed", length=None):
+    place("hats", pick(f"{VD}mid/hh/mid_hh_{kind}_vl{v}_rr*.flac"), t + hum(3), 0.7 * g, pan=0.22, length=length, release=0.03)
+
+
+def crash(t, v=3, g=1.0):
+    place("fx", pick(f"{VD}mid/crash/mid_crash_crash_vl{v}_rr*.flac"), t, 0.55 * g, pan=-0.25)
+    place("fx", pick(f"{VD}room/crash/room_crash_crash_vl{v}_rr*.flac"), t, 0.35 * g, pan=-0.25)
+
+
+def tom(t, which="htom", v=12, g=1.0):
+    place("snare", pick(f"{VD}mid/{which}/mid_{which}_center_vl{v}.flac"), t, 0.8 * g, pan=-0.2 if which == "htom" else 0.15)
+
+
+VC = "vcsl/Idiophones/Struck Idiophones/"
+
+
+def clap(t, g=1.0):
+    place("perc", pick(VC + "Claps/Clap_rr*.wav"), t - 0.006, 0.55 * g, pan=-0.3)
+    place("perc", pick(VC + "Claps/Clap_rr*.wav"), t + 0.004, 0.55 * g, pan=0.3)
+
+
+def tamb(t, g=1.0, kind="Hit_v2"):
+    place("perc", pick(VC + f"Tambourine 1/Tamb1_{kind}_rr1_Mid.wav"), t + hum(3), 0.45 * g, pan=0.4)
+
+
+def shaker(t, g=1.0):
+    f = "Mid_ShakerDouble_Up_rr*.wav" if rand.random() < 0.5 else "Mid_ShakerDouble_Down_rr*.wav"
+    place("perc", pick(VC + "Shaker, Small/" + f), t + hum(4), 0.3 * g, pan=-0.4, length=0.12)
+
+
+def perc(t, path, g=1.0, pan=0.0, length=None):
+    place("perc", pick(VC + path), t, g, pan=pan, length=length)
+
+
+BB = "karoryfer.black-and-blue-basses/Samples/darkblack/"
+
+
+def bass(t, note, length=0.24, art="reg", dyn="f", g=1.0):
+    n = nn(M(note))
+    rr = int(rand.integers(1, 5))
+    if art == "reg":
+        x = pick(f"{BB}reg/darkblack_{n}_{dyn}_rr{rr}.wav")
+    elif art == "ghost":
+        x = pick(f"{BB}ghost/darkblack_{n}_ghost_{dyn}_rr*.wav")
+    else:
+        x = pick(f"{BB}stac/darkblack_{n}_stac_rr{rr}.wav")
+    place("bass", x, t + hum(2), 0.85 * g, length=length + 0.05, release=0.05)
+
+
+GG = "karoryfer.black-and-green-guitars/Samples/green/"
+EM9 = ["G3", "D4", "Gb4", "B4"]
+A13 = ["G3", "Db4", "Gb4", "B4"]
+
+
+def gtr(t, notes, g=1.0, strum=0.007, ring=None, up=False, length=0.15):
+    order = list(reversed(notes)) if up else notes
+    for k, note in enumerate(order):
+        n = nn(M(note) + 12)  # Karoryfer guitar files are named an octave above sounding pitch
+        if ring:
+            x = pick(f"{GG}ord/twang_{n}_f_rr*.wav")
+            place("gtr", x, t + k * strum, 0.32 * g, pan=0.3, length=ring, release=0.35)
+        else:
+            x = pick(f"{GG}stac/staccato_{n}_rr*.wav")
+            place("gtr", x, t + k * strum + hum(2), 0.34 * g, pan=0.3, length=length, release=0.06)
+
+
+BS = "karoryfer.bear-sax/Samples/"
+
+
+def sax(t, note, v=4, g=1.0, length=None, sustain=False):
+    # Bear Sax files sound an octave above their names: "E2" here sounds E3
+    n = nn(M(note))
+    if sustain:
+        x = pick(f"{BS}{n}_looped_f.wav")
+        place("sax", x, t, 0.9 * g, pan=-0.12, length=length or 1.0, release=0.5)
+    else:
+        x = pick(f"{BS}{n}_vl{v}_rr*.wav")
+        place("sax", x, t + hum(2), 1.0 * g, pan=-0.12, length=length, release=0.05)
+
+
+# ---------------------------------------------------------------- arrangement
+def T(step):
+    return step * S16
+
+
+def main_groove(t0, t1, density=1.0):
+    """Live funk kit on the global 16th grid (bar = 16 steps from t=0)."""
+    for step in range(int(round(t0 / S16)), int(round(t1 / S16))):
+        t, s = T(step), step % 16
+        if s in (0, 7, 10):
+            kick(t, 4 if s == 0 else 3)
+        if s in (4, 12):
+            snare(t, 32 + int(rand.integers(0, 4)))
+            tamb(t, 0.8)
+        if density > 0.6 and s in (6, 9, 15):
+            snare(t + hum(3), 6 + int(rand.integers(0, 5)), 0.75)
+        if s == 14 and density > 0.8:
+            hat(t, 3, 0.9, "open", length=0.24)
+        elif s % 2 == 0:
+            hat(t, 4 if s % 4 == 0 else 3, 0.95)
+        else:
+            hat(t, 2, 0.65)
+        shaker(t, 0.8 if s % 2 else 1.0)
+
+
+def bass_line(t0, t1):
+    E_half = [(0, "E2", 2, "reg"), (3, "E3", 1, "stac"), (5, "E2", 1, "ghost"), (6, "G2", 1, "stac"), (7, "A2", 1, "stac")]
+    A_half = [(8, "A2", 2, "reg"), (11, "A3", 1, "stac"), (13, "G2", 1, "ghost"), (14, "B2", 1, "stac"), (15, "D3", 1, "stac")]
+    for bar in range(int(t0 // 2), int(np.ceil(t1 / 2))):
+        for s, note, ln, art in E_half + A_half:
+            t = bar * 2 + T(s)
+            if t0 - 1e-6 <= t < t1 - 1e-6:
+                bass(t, note, ln * S16 * 0.9, art, "p" if art == "ghost" else "f", 0.8 if art == "ghost" else 1.0)
+
+
+def chord_at(t):
+    return EM9 if (t % 2) < 1.0 else A13
+
+
+def gtr_pattern(t0, t1):
+    for step in range(int(round(t0 / S16)), int(round(t1 / S16))):
+        s = step % 16
+        if s in (2, 5, 10, 13):
+            gtr(T(step), chord_at(T(step)), 0.85 if s in (5, 13) else 1.0, up=s in (5, 13))
+
+
+def stab(t, chord=None, g=1.0, bass_note=None, k=True):
+    gtr(t, chord or chord_at(t), g)
+    if bass_note:
+        bass(t, bass_note, 0.16, "stac")
+    if k:
+        kick(t, 3)
+
+
+# --- 0.0 - 1.5: the shape (dot / squircle / flower)
+kick(0.0, 4); bass(0.0, "E2", 0.42, "reg"); sax(0.0, "E1", 4, 0.8); sax(0.0, "E2", 4, 1.0); sax(0.0, "E3", 4, 0.45)
+clap(0.0, 0.7)
+stab(0.5, EM9, 1.0, "E3"); clap(0.5, 0.8); hat(0.5, 3, 0.9, "open", length=0.3)
+stab(1.0, A13, 1.0, "A2"); clap(1.0, 0.8); hat(1.0, 3, 0.9, "open", length=0.3)
+snare(1.25, 8, 0.6); snare(1.375, 14, 0.7)
+for st in range(0, 12):
+    shaker(T(st), 0.7 + 0.3 * (st % 2 == 0))
+
+# --- 1.5 - 2.75: "AI made this."
+stab(1.5, EM9, 1.0, "E2"); clap(1.5, 0.7)
+gtr(1.625, EM9, 0.75, up=True); hat(1.625, 2)
+gtr(1.75, A13, 0.9); snare(1.75, 30)
+main_groove(2.0, 6.0)
+bass_line(2.0, 6.0)
+tamb(2.0, 1.0, "Hit_v2")
+
+# --- 2.75 - 4.75: "From one prompt." + the prompt, word by word
+stab(2.75, EM9, 1.0, None, k=False); gtr(2.875, EM9, 0.7, up=True); gtr(3.0, A13, 0.95)
+riff = ["E4", "G4", "A4", "B4", "D5", "B4", "A4"]
+for i, note in enumerate(riff):
+    gtr(3.25 + i * S16, [note], 1.1 + 0.05 * i, length=0.2)
+
+# --- 4.75 - 6.0: "We call it a cracker." — the bloom gets the horn
+for i, t in enumerate([4.75, 4.875, 5.0, 5.125, 5.25]):
+    gtr(t, chord_at(t), 0.8 + 0.06 * i, up=i % 2 == 1)
+snare(5.5, 34)
+sax(5.75, "G2", 4, 0.9, length=0.16); sax(5.875, "A2", 4, 0.95, length=0.14); sax(5.75, "E3", 3, 0.5, length=0.3)
+tamb(5.75, 1.1)
+
+# --- 6.0 - 6.5: stop. Reverse cymbal pulls into the drop.
+rc = np.ascontiguousarray(pick(f"{VD}mid/crash/mid_crash_crash_vl3_rr1.flac")[: int(1.6 * SR)][::-1])
+swell = rc[-int(0.5 * SR):].copy()
+cut = int(0.03 * SR)  # silence the last 30 ms so the drop hits into air
+swell[-cut:] = 0
+swell[-cut - 240:-cut] *= np.linspace(1, 0, 240)[:, None]
+place("fx", swell, 6.0, 0.55, pan=0.1)
+for i, t in enumerate(np.arange(6.25, 6.44, S16 / 2)):
+    snare(t, 10 + i * 6, 0.55 + 0.12 * i)
+
+# --- 6.5 - 9.5: the wall. Drop on 2, horns lead.
+crash(6.5, 3, 1.0); kick(6.5, 4, 1.15); bass(6.5, "E2", 0.24, "reg"); clap(6.5, 1.0)
+snare(6.5, 36, 0.9); sax(6.5, "E2", 4, 0.8); sax(6.5, "E1", 4, 0.6); tamb(6.5, 1.0)
+main_groove(6.5 + S16, 9.5)
+bass_line(6.75, 9.5)
+gtr_pattern(6.75, 9.5)
+for t, note, ln in [(6.5, "E3", 0.2), (6.75, "E2", 0.1), (6.875, "G2", 0.1), (7.0, "A2", 0.2), (7.25, "B2", 0.1), (7.5, "D3", 0.2), (7.75, "E3", 0.2)]:
+    sax(t, note, 4, 1.0, length=ln + 0.06)
+# 8.0: zoom out of the period
+crash(8.0, 2, 0.8); sax(8.0, "E1", 4, 0.7); sax(8.0, "E2", 4, 1.0); sax(8.0, "E3", 4, 0.5); clap(8.0, 0.8)
+sax(9.0, "G2", 3, 0.75, length=0.14); sax(9.125, "A2", 3, 0.8, length=0.14); sax(9.25, "B2", 4, 0.85, length=0.2)
+# 9.5 - 10.0: tom fill as the camera dives into the letter
+for i, (t, w) in enumerate([(9.5, "htom"), (9.625, "htom"), (9.75, "ltom"), (9.875, "ltom")]):
+    tom(t, w, 10 + i, 0.9)
+bass(9.5, "E3", 0.1, "stac"); bass(9.75, "D3", 0.1, "stac"); bass(9.875, "B2", 0.1, "stac")
+
+# --- 10.0 - 11.5: the card. Half-time, room to read.
+kick(10.0, 4); crash(10.0, 1, 0.55); bass(10.0, "E2", 0.9, "reg", "mf")
+perc(10.2, "Cabasa/Cabasa1_Rub_v2_rr1_Mid.wav", 0.6, pan=0.25)
+for st in range(80, 92):
+    t = T(st)
+    if st % 2 == 0:
+        hat(t, 2 if st % 4 else 3, 0.75)
+    shaker(t, 0.6)
+snare(11.0, 28, 0.85); kick(10.75, 3, 0.8); kick(11.25, 3, 0.7)
+bass(10.75, "G2", 0.2, "stac"); bass(11.0, "A2", 0.4, "reg", "mf")
+for i, note in enumerate(["B3", "D4", "E4", "G4", "A4", "B4"]):
+    gtr(10.25 + i * S16, [note], 0.95, length=0.2)
+
+# --- 11.5 - 12.75: "Copy it." / "Make your own."
+stab(11.75, EM9, 1.15, "E2"); clap(11.75, 1.0); sax(11.75, "E3", 4, 0.8, length=0.18); snare(11.75, 30, 0.6)
+perc(11.8, "Guiro/Guiro_Fast_rr1_Mid.wav", 0.6, pan=-0.2, length=0.45)
+tom(12.0, "ltom", 14, 0.8)
+stab(12.25, A13, 1.1, "A2"); clap(12.25, 0.9)
+gtr(12.375, A13, 0.9, up=True); bass(12.375, "B2", 0.1, "stac")
+stab(12.5, EM9, 1.1, "D3"); snare(12.5, 32)
+perc(12.5, "Tambourine 1/Tamb1_Roll_v2_rr1_Mid.wav", 0.5, pan=0.3, length=0.3)
+
+# --- 12.8 - 13.5: the glitch. Chopped chord tones on 32nds, getting louder.
+pool = ["G3", "B3", "D4", "E4", "Gb4", "A4", "B4"]
+t = 12.8
+i = 0
+while t < 13.42:
+    g = 0.7 + 0.8 * (t - 12.8) / 0.62
+    if rand.random() < 0.82:
+        gtr(t, [pool[int(rand.integers(len(pool)))]], g * 0.9, length=0.07)
+    if i % 2 == 0:
+        hat(t, 2, 0.45 * g)
+    if rand.random() < 0.25:
+        snare(t, 4 + int(rand.integers(0, 6)), 0.5 * g)
+    t += S16 / 2
+    i += 1
+
+# --- 13.5: the logo lands. Everything on one hit, then let it ring.
+kick(13.5, 4, 1.05); crash(13.5, 3, 0.9); clap(13.5, 0.9); tamb(13.5, 1.0)
+bass(13.5, "E2", 1.4, "reg", "f")
+sax(13.5, "E1", 4, 0.75); sax(13.5, "E2", 4, 0.9); sax(13.52, "E2", 4, 0.75, length=1.3, sustain=True)
+gtr(13.5, ["E3", "B3", "D4", "Gb4", "B4"], 1.0, strum=0.012, ring=1.45)
+
+
+# ---------------------------------------------------------------- mix
+def hp(x, f, order=2):
+    sos = signal.butter(order, f, "hp", fs=SR, output="sos")
+    return signal.sosfilt(sos, x, axis=0)
+
+
+def lp(x, f, order=2):
+    sos = signal.butter(order, f, "lp", fs=SR, output="sos")
+    return signal.sosfilt(sos, x, axis=0)
+
+
+def peak(x, f, gain_db, q=1.0):
+    # RBJ peaking EQ
+    A = 10 ** (gain_db / 40); w = 2 * np.pi * f / SR; al = np.sin(w) / (2 * q)
+    b = [1 + al * A, -2 * np.cos(w), 1 - al * A]; a = [1 + al / A, -2 * np.cos(w), 1 - al / A]
+    return signal.lfilter(np.array(b) / a[0], np.array(a) / a[0], x, axis=0)
+
+
+def shelf_hi(x, f, gain_db):
+    A = 10 ** (gain_db / 40); w = 2 * np.pi * f / SR; al = np.sin(w) / 2 * np.sqrt(2)
+    c = np.cos(w); sA = 2 * np.sqrt(A) * al
+    b = [A * ((A + 1) + (A - 1) * c + sA), -2 * A * ((A - 1) + (A + 1) * c), A * ((A + 1) + (A - 1) * c - sA)]
+    a = [(A + 1) - (A - 1) * c + sA, 2 * ((A - 1) - (A + 1) * c), (A + 1) - (A - 1) * c - sA]
+    return signal.lfilter(np.array(b) / a[0], np.array(a) / a[0], x, axis=0)
+
+
+def comp(x, thr_db, ratio, att=0.005, rel=0.08, makeup_db=0.0, key=None):
+    k = np.abs(key if key is not None else x).max(1)
+    a_ = np.exp(-1 / (att * SR)); r_ = np.exp(-1 / (rel * SR))
+    env = np.zeros_like(k)
+    e = 0.0
+    for i, v in enumerate(k):
+        e = a_ * e + (1 - a_) * v if v > e else r_ * e + (1 - r_) * v
+        env[i] = e
+    lvl = 20 * np.log10(env + 1e-9)
+    over = np.maximum(0, lvl - thr_db)
+    g = 10 ** ((-over * (1 - 1 / ratio) + makeup_db) / 20)
+    return x * g[:, None]
+
+
+def sat(x, drive=1.5):
+    return np.tanh(x * drive) / np.tanh(drive)
+
+
+def room_ir(length=1.1, decay=0.42, seed=3):
+    r = np.random.default_rng(seed)
+    n = int(length * SR)
+    t = np.arange(n) / SR
+    ir = r.standard_normal((n, 2)) * np.exp(-t / decay * 6.9)[:, None]
+    ir = lp(ir, 6500); ir = hp(ir, 180)
+    ir[: int(0.012 * SR)] = 0  # pre-delay
+    return ir / np.abs(ir).sum(0).max() * 6
+
+
+IR = room_ir()
+
+
+def verb(x, wet):
+    y = np.stack([signal.fftconvolve(x[:, c], IR[:, c])[: len(x)] for c in range(2)], 1)
+    return y * wet
+
+
+kickb = comp(hp(peak(peak(B["kick"], 60, 3.0, 0.9), 380, -4, 1.2), 30), -14, 3, 0.004, 0.09, 2)
+snareb = comp(peak(hp(B["snare"], 90), 200, 2, 1.0), -18, 3, 0.003, 0.1, 2)
+hatsb = shelf_hi(hp(B["hats"], 400), 9000, 1.5)
+percb = hp(B["perc"], 250)
+bassb = comp(lp(hp(peak(B["bass"], 90, 2.5, 0.8), 38), 4500), -18, 4, 0.004, 0.12, 3)
+# light pump from the kick on the bass, stabs and horn
+duck_key = B["kick"] * 3
+bassb = comp(bassb, -20, 3, 0.002, 0.11, 0, key=duck_key)
+gtrb = comp(peak(hp(B["gtr"], 160), 2600, 2.5, 0.9), -20, 3, 0.003, 0.08, 2)
+saxb = comp(peak(hp(sat(B["sax"], 1.8), 55), 900, 2, 0.8), -16, 3, 0.006, 0.12, 2)
+fxb = hp(B["fx"], 300)
+
+def active_rms_db(x):
+    m = np.abs(x).max(1)
+    win = int(0.05 * SR)
+    env = np.sqrt(np.convolve(m ** 2, np.ones(win) / win, "same"))
+    act = env > env.max() * 10 ** (-30 / 20)
+    return 20 * np.log10(np.sqrt((m[act] ** 2).mean()) + 1e-12)
+
+
+def level(x, target_db):
+    return x * 10 ** ((target_db - active_rms_db(x)) / 20)
+
+
+# relative mix (dB, measured while each part plays)
+kickb = level(kickb, -15.0)
+snareb = level(snareb, -19.0)
+hatsb = level(hatsb, -29.0)
+percb = level(percb, -27.0)
+fxb = level(fxb, -27.0)
+bassb = level(bassb, -17.0)
+gtrb = level(gtrb, -22.5)
+saxb = level(saxb, -18.5)
+
+drums = kickb + snareb + hatsb + percb + fxb
+drums = comp(sat(drums, 1.3), -12, 2.5, 0.003, 0.08, 1.5)
+music = bassb + gtrb + saxb
+mix = drums + music
+mix += verb(snareb * 0.6 + gtrb * 0.5 + saxb * 0.6 + percb * 0.4, 0.28)
+
+# master: glue, gentle tilt, soft clip, loudness
+mix = comp(mix, -10, 2.0, 0.01, 0.15, 1.0)
+mix = shelf_hi(mix, 11000, 1.0)
+
+# section rides: verse sits under the drop, the card section breathes so the text can be read
+ride_db = np.zeros(len(mix))
+for t0, t1, db in [(1.98, 5.98, -1.8), (9.98, 11.7, -3.5)]:
+    a_, b_ = int(t0 * SR), int(t1 * SR)
+    ride_db[a_:b_] = db
+k = int(0.02 * SR)
+ride_db = np.convolve(ride_db, np.ones(k) / k, "same")
+mix *= (10 ** (ride_db / 20))[:, None]
+mix = mix[: int(DUR * SR)]
+# fade the very end so the ring-out closes cleanly with the picture
+fo = int(0.45 * SR)
+mix[-fo:] *= np.linspace(1, 0, fo)[:, None] ** 1.5
+
+try:
+    import pyloudnorm as pyln
+    meter = pyln.Meter(SR)
+    lufs = meter.integrated_loudness(mix)
+    mix *= 10 ** ((-14.0 - lufs) / 20)
+except Exception:
+    mix /= np.abs(mix).max() / 0.7
+mix = np.tanh(mix * 1.2) / 1.2  # soft clip
+mix = np.clip(mix / max(1.0, np.abs(mix).max() / 0.96), -1, 1)
+sf.write(OUT, mix.astype(np.float32), SR, subtype="PCM_24")
+print("wrote", OUT, "peak", round(20 * np.log10(np.abs(mix).max()), 2), "dBFS")
