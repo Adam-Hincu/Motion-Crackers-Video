@@ -1,6 +1,6 @@
 # Motion Crackers — launch film
 
-18.75 s, 1920×1080, 30 fps. Final cut: `renders/motion-crackers-launch.mp4`.
+16.5 s, 1920×1080, 30 fps. Final cut: `renders/motion-crackers-launch.mp4`.
 
 - `video/` — HyperFrames composition (`index.html`, one GSAP timeline).
 - `tools/text_mask.py` — shapes "A whole gallery of them." in Switzer with HarfBuzz and writes the vector mask the gallery is seen through.

@@ -12,10 +12,9 @@ import glob, os, subprocess, sys
 import numpy as np
 import soundfile as sf
 from scipy import signal
-from scipy.ndimage import minimum_filter1d
 
 SR = 48000
-DUR = 18.75
+DUR = 16.5
 BEAT = 0.5
 S16 = BEAT / 4
 
@@ -225,10 +224,10 @@ def T(step):
     return step * S16
 
 
-def main_groove(t0, t1, anchor=0.0, density=1.0):
-    """Live funk kit on a 16th grid whose bar starts at `anchor`."""
-    for n in range(int(round((t0 - anchor) / S16)), int(round((t1 - anchor) / S16))):
-        t, s = anchor + T(n), n % 16
+def main_groove(t0, t1, density=1.0):
+    """Live funk kit on the global 16th grid (bar = 16 steps from t=0)."""
+    for step in range(int(round(t0 / S16)), int(round(t1 / S16))):
+        t, s = T(step), step % 16
         if s in (0, 7, 10):
             kick(t, 4 if s == 0 else 3)
         if s in (4, 12):
@@ -245,40 +244,25 @@ def main_groove(t0, t1, anchor=0.0, density=1.0):
         shaker(t, 0.8 if s % 2 else 1.0)
 
 
-def half_time(t0, t1, anchor):
-    """Lighter kit for reading moments: kick on 1 and the "and" of 3, snare on 3, 8th hats."""
-    for n in range(int(round((t0 - anchor) / S16)), int(round((t1 - anchor) / S16))):
-        t, s = anchor + T(n), n % 16
-        if s in (0, 10):
-            kick(t, 3, 0.85)
-        if s == 8:
-            snare(t, 26, 0.8)
-        if s % 2 == 0:
-            hat(t, 3 if s % 4 == 0 else 2, 0.75)
-        shaker(t, 0.6)
-
-
-E_HALF = [(0, "E2", 2, "reg"), (3, "E3", 1, "stac"), (5, "E2", 1, "ghost"), (6, "G2", 1, "stac"), (7, "A2", 1, "stac")]
-A_HALF = [(8, "A2", 2, "reg"), (11, "A3", 1, "stac"), (13, "G2", 1, "ghost"), (14, "B2", 1, "stac"), (15, "D3", 1, "stac")]
-
-
-def bass_line(t0, t1, anchor=0.0):
-    for bar in range(int((t0 - anchor) // 2), int(np.ceil((t1 - anchor) / 2))):
-        for s, note, ln, art in E_HALF + A_HALF:
-            t = anchor + bar * 2 + T(s)
+def bass_line(t0, t1):
+    E_half = [(0, "E2", 2, "reg"), (3, "E3", 1, "stac"), (5, "E2", 1, "ghost"), (6, "G2", 1, "stac"), (7, "A2", 1, "stac")]
+    A_half = [(8, "A2", 2, "reg"), (11, "A3", 1, "stac"), (13, "G2", 1, "ghost"), (14, "B2", 1, "stac"), (15, "D3", 1, "stac")]
+    for bar in range(int(t0 // 2), int(np.ceil(t1 / 2))):
+        for s, note, ln, art in E_half + A_half:
+            t = bar * 2 + T(s)
             if t0 - 1e-6 <= t < t1 - 1e-6:
                 bass(t, note, ln * S16 * 0.9, art, "p" if art == "ghost" else "f", 0.8 if art == "ghost" else 1.0)
 
 
-def chord_at(t, anchor=0.0):
-    return EM9 if ((t - anchor) % 2) < 1.0 else A13
+def chord_at(t):
+    return EM9 if (t % 2) < 1.0 else A13
 
 
-def gtr_pattern(t0, t1, anchor=0.0):
-    for n in range(int(round((t0 - anchor) / S16)), int(round((t1 - anchor) / S16))):
-        s, t = n % 16, anchor + T(n)
+def gtr_pattern(t0, t1):
+    for step in range(int(round(t0 / S16)), int(round(t1 / S16))):
+        s = step % 16
         if s in (2, 5, 10, 13):
-            gtr(t, chord_at(t, anchor), 0.85 if s in (5, 13) else 1.0, up=s in (5, 13))
+            gtr(T(step), chord_at(T(step)), 0.85 if s in (5, 13) else 1.0, up=s in (5, 13))
 
 
 def stab(t, chord=None, g=1.0, bass_note=None, k=True):
@@ -289,14 +273,7 @@ def stab(t, chord=None, g=1.0, bass_note=None, k=True):
         kick(t, 3)
 
 
-# ---------------------------------------------------------------- score
-# Cue sheet: the same times as the `Q` object in video/index.html.
-Q = dict(s3=2.75, land2=3.25, out2=3.8, s4=4.0, land3=4.75, bloom=5.0, s5=5.75, land4=6.25,
-         brk=7.0, drop=7.5, mask=9.0, dive=10.5, card=11.0, flip=11.2, head=11.25,
-         copy=12.75, drop2=13.0, make=13.75, collapse=14.75, logo=14.75)
-L0 = Q["logo"]
-
-# --- 0.0 - 1.5: a dot changes shape on every beat
+# --- 0.0 - 1.5: the shape (dot / squircle / flower)
 kick(0.0, 4); bass(0.0, "E2", 0.42, "reg"); sax(0.0, "E1", 4, 0.8); sax(0.0, "E2", 4, 1.0); sax(0.0, "E3", 4, 0.45)
 clap(0.0, 0.7)
 stab(0.5, EM9, 1.0, "E3"); clap(0.5, 0.8); hat(0.5, 3, 0.9, "open", length=0.3)
@@ -305,95 +282,93 @@ snare(1.25, 8, 0.6); snare(1.375, 14, 0.7)
 for st in range(0, 12):
     shaker(T(st), 0.7 + 0.3 * (st % 2 == 0))
 
-# --- 1.5 - 2.75: "AI made this video." — one stab per word, the period lands on the 1
+# --- 1.5 - 2.75: "AI made this."
 stab(1.5, EM9, 1.0, "E2"); clap(1.5, 0.7)
 gtr(1.625, EM9, 0.75, up=True); hat(1.625, 2)
 gtr(1.75, A13, 0.9); snare(1.75, 30)
-gtr(1.875, EM9, 0.8, up=True); hat(1.875, 2)
-main_groove(2.0, Q["brk"])
-bass_line(2.0, Q["brk"])
-tamb(2.0, 1.0)
 
-# --- "From one prompt." — three words, then the orange period lands
-stab(Q["s3"], EM9, 1.0, None, k=False); gtr(Q["s3"] + 0.125, EM9, 0.7, up=True); gtr(Q["s3"] + 0.25, A13, 0.95)
-gtr(Q["land2"], ["E4", "B4"], 0.75); tamb(Q["land2"], 0.9)
-snare(Q["out2"] + 0.075, 12, 0.6)
 
-# --- "We call it a cracker." — a chord per word, a snare for the period, the horn for the bloom
-for i in range(5):
-    t = Q["s4"] + i * S16
+def extra(seed, fn):
+    """Events added after the first cut draw from their own RNG, so every
+    original hit keeps its exact take, timing and humanisation."""
+    global rand
+    keep, rand = rand, np.random.default_rng(seed)
+    fn()
+    rand = keep
+
+
+extra(101, lambda: (gtr(1.875, EM9, 0.8, up=True), hat(1.875, 2)))  # "video"
+main_groove(2.0, 6.0)
+bass_line(2.0, 6.0)
+tamb(2.0, 1.0, "Hit_v2")
+
+# --- 2.75 - 4.75: "From one prompt." + the prompt, word by word
+stab(2.75, EM9, 1.0, None, k=False); gtr(2.875, EM9, 0.7, up=True); gtr(3.0, A13, 0.95)
+riff = ["E4", "G4", "A4", "B4", "D5", "B4", "A4"]
+for i, note in enumerate(riff):
+    gtr(3.25 + i * S16, [note], 1.1 + 0.05 * i, length=0.2)
+
+# --- 4.75 - 6.0: "We call it a cracker." — the bloom gets the horn
+for i, t in enumerate([4.75, 4.875, 5.0, 5.125, 5.25]):
     gtr(t, chord_at(t), 0.8 + 0.06 * i, up=i % 2 == 1)
-snare(Q["land3"], 34)
-sax(Q["bloom"], "G2", 4, 0.9, length=0.16); sax(Q["bloom"] + S16, "A2", 4, 0.95, length=0.14); sax(Q["bloom"], "E3", 3, 0.5, length=0.3)
-tamb(Q["bloom"], 1.1)
+snare(5.5, 34)
+sax(5.75, "G2", 4, 0.9, length=0.16); sax(5.875, "A2", 4, 0.95, length=0.14); sax(5.75, "E3", 3, 0.5, length=0.3)
+tamb(5.75, 1.1)
 
-# --- "Bite-size motion design." — the line rolls over: a swish out, three stabs in, the flower lands
-hat(Q["s5"] - 0.125, 3, 0.8, "open", length=0.2)
-gtr(Q["s5"] + 0.125, A13, 0.95); gtr(Q["s5"] + 0.25, EM9, 0.85, up=True); gtr(Q["s5"] + 0.375, A13, 1.0)
-clap(Q["land4"], 0.9); snare(Q["land4"], 30, 0.7); bass(Q["land4"], "E3", 0.12, "stac"); sax(Q["land4"], "E3", 4, 0.6, length=0.16)
-
-# --- break: stop. A reverse cymbal pulls into the drop.
+# --- 6.0 - 6.5: stop. Reverse cymbal pulls into the drop.
 rc = np.ascontiguousarray(pick(f"{VD}mid/crash/mid_crash_crash_vl3_rr1.flac")[: int(1.6 * SR)][::-1])
 swell = rc[-int(0.5 * SR):].copy()
-cut = int(0.03 * SR)  # the last 30 ms are silent so the drop hits into air
+cut = int(0.03 * SR)  # silence the last 30 ms so the drop hits into air
 swell[-cut:] = 0
 swell[-cut - 240:-cut] *= np.linspace(1, 0, 240)[:, None]
-place("fx", swell, Q["brk"], 0.55, pan=0.1)
-for i, t in enumerate(np.arange(Q["brk"] + 0.25, Q["drop"] - 0.06, S16 / 2)):
+place("fx", swell, 6.0, 0.55, pan=0.1)
+for i, t in enumerate(np.arange(6.25, 6.44, S16 / 2)):
     snare(t, 10 + i * 6, 0.55 + 0.12 * i)
 
-# --- the wall: drop, horns lead
-D = Q["drop"]
-crash(D, 3, 1.0); kick(D, 4, 1.15); bass(D, "E2", 0.24, "reg"); clap(D, 1.0)
-snare(D, 36, 0.9); sax(D, "E2", 4, 0.8); sax(D, "E1", 4, 0.6); tamb(D, 1.0)
-main_groove(D + S16, Q["dive"], anchor=D)
-bass_line(D + 0.25, Q["dive"], anchor=D)
-gtr_pattern(D + 0.25, Q["dive"], anchor=D)
-for dt, note, ln in [(0.0, "E3", 0.2), (0.25, "E2", 0.1), (0.375, "G2", 0.1), (0.5, "A2", 0.2), (0.75, "B2", 0.1), (1.0, "D3", 0.2), (1.25, "E3", 0.2)]:
-    sax(D + dt, note, 4, 1.0, length=ln + 0.06)
-# zoom out of the period
-Mz = Q["mask"]
-crash(Mz, 2, 0.8); sax(Mz, "E1", 4, 0.7); sax(Mz, "E2", 4, 1.0); sax(Mz, "E3", 4, 0.5); clap(Mz, 0.8)
-sax(Mz + 1.0, "G2", 3, 0.75, length=0.14); sax(Mz + 1.125, "A2", 3, 0.8, length=0.14); sax(Mz + 1.25, "B2", 4, 0.85, length=0.2)
-# tom fill as the camera dives into the letter
-for i, (dt, w) in enumerate([(0.0, "htom"), (0.125, "htom"), (0.25, "ltom"), (0.375, "ltom")]):
-    tom(Q["dive"] + dt, w, 10 + i, 0.9)
-bass(Q["dive"], "E3", 0.1, "stac"); bass(Q["dive"] + 0.25, "D3", 0.1, "stac"); bass(Q["dive"] + 0.375, "B2", 0.1, "stac")
+# --- 6.5 - 9.5: the wall. Drop on 2, horns lead.
+crash(6.5, 3, 1.0); kick(6.5, 4, 1.15); bass(6.5, "E2", 0.24, "reg"); clap(6.5, 1.0)
+snare(6.5, 36, 0.9); sax(6.5, "E2", 4, 0.8); sax(6.5, "E1", 4, 0.6); tamb(6.5, 1.0)
+main_groove(6.5 + S16, 9.5)
+bass_line(6.75, 9.5)
+gtr_pattern(6.75, 9.5)
+for t, note, ln in [(6.5, "E3", 0.2), (6.75, "E2", 0.1), (6.875, "G2", 0.1), (7.0, "A2", 0.2), (7.25, "B2", 0.1), (7.5, "D3", 0.2), (7.75, "E3", 0.2)]:
+    sax(t, note, 4, 1.0, length=ln + 0.06)
+# 8.0: zoom out of the period
+crash(8.0, 2, 0.8); sax(8.0, "E1", 4, 0.7); sax(8.0, "E2", 4, 1.0); sax(8.0, "E3", 4, 0.5); clap(8.0, 0.8)
+sax(9.0, "G2", 3, 0.75, length=0.14); sax(9.125, "A2", 3, 0.8, length=0.14); sax(9.25, "B2", 4, 0.85, length=0.2)
+# 9.5 - 10.0: tom fill as the camera dives into the letter
+for i, (t, w) in enumerate([(9.5, "htom"), (9.625, "htom"), (9.75, "ltom"), (9.875, "ltom")]):
+    tom(t, w, 10 + i, 0.9)
+bass(9.5, "E3", 0.1, "stac"); bass(9.75, "D3", 0.1, "stac"); bass(9.875, "B2", 0.1, "stac")
 
-# --- the card: half-time, room to look
-Cd = Q["card"]
-kick(Cd, 4); crash(Cd, 1, 0.55); bass(Cd, "E2", 0.9, "reg", "mf")
-half_time(Cd + S16, Q["copy"] - 0.25, anchor=Cd)
-perc(Q["flip"], "Cabasa/Cabasa1_Rub_v2_rr1_Mid.wav", 0.6, pan=0.25)
-bass(Cd + 0.75, "G2", 0.2, "stac"); bass(Cd + 1.0, "A2", 0.4, "reg", "mf"); bass(Cd + 1.5, "B2", 0.2, "stac")
+# --- 10.0 - 11.5: the card. Half-time, room to read.
+kick(10.0, 4); crash(10.0, 1, 0.55); bass(10.0, "E2", 0.9, "reg", "mf")
+perc(10.2, "Cabasa/Cabasa1_Rub_v2_rr1_Mid.wav", 0.6, pan=0.25)
+for st in range(80, 92):
+    t = T(st)
+    if st % 2 == 0:
+        hat(t, 2 if st % 4 else 3, 0.75)
+    shaker(t, 0.6)
+snare(11.0, 28, 0.85); kick(10.75, 3, 0.8); kick(11.25, 3, 0.7)
+bass(10.75, "G2", 0.2, "stac"); bass(11.0, "A2", 0.4, "reg", "mf")
 for i, note in enumerate(["B3", "D4", "E4", "G4", "A4", "B4"]):
-    gtr(Q["head"] + i * S16, [note], 0.95, length=0.2)
-snare(Q["copy"] - 0.125, 14, 0.6)
+    gtr(10.25 + i * S16, [note], 0.95, length=0.2)
 
-# --- "Copy it." — a band hit, the card drops away under the lines
-Cp = Q["copy"]
-stab(Cp, EM9, 1.15, "E2"); clap(Cp, 1.0); sax(Cp, "E3", 4, 0.8, length=0.18); snare(Cp, 30, 0.6)
-gtr(Cp + 0.125, A13, 0.85, up=True)
-perc(Q["drop2"], "Guiro/Guiro_Fast_rr1_Mid.wav", 0.6, pan=-0.2, length=0.45)
-tom(Q["drop2"] + 0.25, "ltom", 14, 0.8)
-half_time(Cp + S16, Q["collapse"], anchor=Cp)
-bass_line(Cp + 0.25, Q["make"], anchor=Cp)
+# --- 11.5 - 12.75: "Copy it." / "Make your own."
+stab(11.75, EM9, 1.15, "E2"); clap(11.75, 1.0); sax(11.75, "E3", 4, 0.8, length=0.18); snare(11.75, 30, 0.6)
+perc(11.8, "Guiro/Guiro_Fast_rr1_Mid.wav", 0.6, pan=-0.2, length=0.45)
+tom(12.0, "ltom", 14, 0.8)
+stab(12.25, A13, 1.1, "A2"); clap(12.25, 0.9)
+gtr(12.375, A13, 0.9, up=True); bass(12.375, "B2", 0.1, "stac")
+stab(12.5, EM9, 1.1, "D3"); snare(12.5, 32)
+perc(12.5, "Tambourine 1/Tamb1_Roll_v2_rr1_Mid.wav", 0.5, pan=0.3, length=0.3)
 
-# --- "Make your own." — three words, the lines shuffle, then fold into a dot
-Mk = Q["make"]
-stab(Mk, A13, 1.1, "A2"); clap(Mk, 0.9)
-gtr(Mk + 0.125, A13, 0.9, up=True); bass(Mk + 0.125, "B2", 0.1, "stac")
-stab(Mk + 0.25, EM9, 1.1, "D3"); snare(Mk + 0.25, 32)
-for i in range(6):  # the lines hop as they are rearranged
-    gtr(Mk + 0.25 + 0.0625 + i * 0.0625, [["B4", "A4", "Gb4", "E4", "D4", "B3"][i]], 0.55, length=0.08)
-bass(Mk + 0.5, "E2", 0.3, "reg", "mf"); bass(Mk + 0.75, "G2", 0.2, "stac")
-perc(Q["collapse"] - 0.25, "Tambourine 1/Tamb1_Roll_v2_rr1_Mid.wav", 0.5, pan=0.3, length=0.3)
-
-# --- the glitch: chopped chord tones on 32nds, getting louder
+# --- 12.8 - 13.5: the glitch. Chopped chord tones on 32nds, getting louder.
 pool = ["G3", "B3", "D4", "E4", "Gb4", "A4", "B4"]
-t, i = L0 + 0.3, 0
-while t < L0 + 0.92:
-    g = 0.7 + 0.8 * (t - L0 - 0.3) / 0.62
+t = 12.8
+i = 0
+while t < 13.42:
+    g = 0.7 + 0.8 * (t - 12.8) / 0.62
     if rand.random() < 0.82:
         gtr(t, [pool[int(rand.integers(len(pool)))]], g * 0.9, length=0.07)
     if i % 2 == 0:
@@ -403,14 +378,13 @@ while t < L0 + 0.92:
     t += S16 / 2
     i += 1
 
-# --- the logo lands: everything on one hit, then let it ring under the link
-F = L0 + 1.0
-kick(F, 4, 1.05); crash(F, 3, 0.9); clap(F, 0.9); tamb(F, 1.0)
-bass(F, "E2", 2.6, "reg", "f")
-sax(F, "E1", 4, 0.75); sax(F, "E2", 4, 0.9); sax(F + 0.02, "E2", 4, 0.75, length=2.1, sustain=True)
-gtr(F, ["E3", "B3", "D4", "Gb4", "B4"], 1.0, strum=0.012, ring=2.9)
-U = L0 + 2.25  # the link rises in: one soft, slow strum over the ringing chord
-gtr(U, ["B3", "D4", "Gb4", "B4"], 0.45, strum=0.03, ring=1.7, up=True); bass(U, "B2", 1.6, "reg", "mf", 0.5)
+# --- 13.5: the logo lands. Everything on one hit, then let it ring.
+kick(13.5, 4, 1.05); crash(13.5, 3, 0.9); clap(13.5, 0.9); tamb(13.5, 1.0)
+bass(13.5, "E2", 2.6, "reg", "f")
+sax(13.5, "E1", 4, 0.75); sax(13.5, "E2", 4, 0.9); sax(13.52, "E2", 4, 0.75, length=2.1, sustain=True)
+gtr(13.5, ["E3", "B3", "D4", "Gb4", "B4"], 1.0, strum=0.012, ring=2.9)
+# the link rises in: one soft, slow strum over the ringing chord
+extra(102, lambda: (gtr(14.75, ["B3", "D4", "Gb4", "B4"], 0.45, strum=0.03, ring=1.7, up=True), bass(14.75, "B2", 1.6, "reg", "mf", 0.5)))
 
 
 # ---------------------------------------------------------------- mix
@@ -453,21 +427,6 @@ def comp(x, thr_db, ratio, att=0.005, rel=0.08, makeup_db=0.0, key=None):
     return x * g[:, None]
 
 
-def limit(x, ceil_db, look=0.003, rel=0.06):
-    """Look-ahead peak limiter: gain dips smoothly ahead of each peak, never past the ceiling."""
-    ceil = 10 ** (ceil_db / 20)
-    need = np.minimum(1.0, ceil / np.maximum(np.abs(x).max(1), 1e-9))
-    n = int(look * SR)
-    g = minimum_filter1d(need, size=2 * n + 1)
-    a_, r = np.exp(-1 / (look * SR / 3)), np.exp(-1 / (rel * SR))
-    sm = np.empty_like(g)
-    e = 1.0
-    for i, v in enumerate(g):
-        e = a_ * e + (1 - a_) * v if v < e else r * e + (1 - r) * v
-        sm[i] = e
-    return x * np.minimum(sm, g)[:, None]
-
-
 def sat(x, drive=1.5):
     return np.tanh(x * drive) / np.tanh(drive)
 
@@ -498,8 +457,7 @@ bassb = comp(lp(hp(peak(B["bass"], 90, 2.5, 0.8), 38), 4500), -18, 4, 0.004, 0.1
 # light pump from the kick on the bass, stabs and horn
 duck_key = B["kick"] * 3
 bassb = comp(bassb, -20, 3, 0.002, 0.11, 0, key=duck_key)
-gtrb = lp(peak(hp(B["gtr"], 160), 2600, 2.0, 0.9), 7500, 4)  # keep the bite, drop the hiss above it
-gtrb = comp(gtrb, -20, 3, 0.003, 0.08, 2)
+gtrb = comp(peak(hp(B["gtr"], 160), 2600, 2.5, 0.9), -20, 3, 0.003, 0.08, 2)
 saxb = comp(peak(hp(sat(B["sax"], 1.8), 55), 900, 2, 0.8), -16, 3, 0.006, 0.12, 2)
 fxb = hp(B["fx"], 300)
 
@@ -522,7 +480,7 @@ hatsb = level(hatsb, -29.0)
 percb = level(percb, -27.0)
 fxb = level(fxb, -27.0)
 bassb = level(bassb, -17.0)
-gtrb = limit(level(gtrb, -22.5), -11.0)
+gtrb = level(gtrb, -22.5)
 saxb = level(saxb, -18.5)
 
 drums = kickb + snareb + hatsb + percb + fxb
@@ -537,7 +495,7 @@ mix = shelf_hi(mix, 11000, 1.0)
 
 # section rides: verse sits under the drop, the card section breathes so the text can be read
 ride_db = np.zeros(len(mix))
-for t0, t1, db in [(1.98, Q["brk"] - 0.02, -1.0), (Q["card"] - 0.02, Q["copy"] - 0.05, -2.0)]:
+for t0, t1, db in [(1.98, 5.98, -1.8), (9.98, 11.7, -3.5)]:
     a_, b_ = int(t0 * SR), int(t1 * SR)
     ride_db[a_:b_] = db
 k = int(0.02 * SR)
@@ -551,13 +509,11 @@ mix[-fo:] *= np.linspace(1, 0, fo)[:, None] ** 1.5
 try:
     import pyloudnorm as pyln
     meter = pyln.Meter(SR)
-    lufs = meter.integrated_loudness(mix)
+    lufs = meter.integrated_loudness(mix[: int(15.0 * SR)])  # same reference window as the first cut
     mix *= 10 ** ((-14.0 - lufs) / 20)
 except Exception:
     mix /= np.abs(mix).max() / 0.7
-pre = np.abs(mix).max(1)
-mix = limit(mix, -1.5)  # clean look-ahead limiting, no clipping, true-peak headroom for AAC
-gr = 20 * np.log10(np.maximum(np.abs(mix).max(1), 1e-9) / np.maximum(pre, 1e-9))
-print("master limiter: max gain reduction %.1f dB" % -gr[pre > 1e-3].min())
+mix = np.tanh(mix * 1.2) / 1.2  # soft clip
+mix = np.clip(mix / max(1.0, np.abs(mix).max() / 0.96), -1, 1)
 sf.write(OUT, mix.astype(np.float32), SR, subtype="PCM_24")
 print("wrote", OUT, "peak", round(20 * np.log10(np.abs(mix).max()), 2), "dBFS")
