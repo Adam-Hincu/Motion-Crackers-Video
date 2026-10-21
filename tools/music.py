@@ -176,23 +176,30 @@ def perc(t, path, g=1.0, pan=0.0, length=None):
     place("perc", pick(VC + path), t, g, pan=pan, length=length)
 
 
-# Word / letter taps: muted hand drums and log drum, low to high, all hiss-free.
+# Word / letter taps: woodblocks and claves, low to high, each with a little
+# hand-drum body. They live at 1.3 - 2.9 kHz, above the kick, bass and snare.
 CG = "vcsl/Membranophones/Struck Membranophones/"
+WB = VC + "Woodblock/"
 TAPS = [
-    [(CG + "Conga/Tumba_HitFM_v3_rr*_Sum.wav", 0.9), (VC + "Cajon/Cajon_hit3_f_rr*.wav", 0.55)],
-    [(CG + "Conga/Conga_HitFM_v2_rr*_Sum.wav", 0.85), (VC + "Slit Drum/LogDrumLo_MedM_v2_rr1_Sum.wav", 0.45)],
-    [(VC + "Slit Drum/LogDrumHi_MedM_v2_rr1_Sum.wav", 0.6), (CG + "Conga/Quinto_HitFM1_v2_rr*_Sum.wav", 0.6)],
-    [(CG + "Bongos/BongoL_HitMuted2_v2_rr*_Mid.wav", 0.8)],
-    [(CG + "Bongos/BongoH_HitMuted1_v2_rr*_Mid.wav", 0.75)],
+    [(WB + "wood_click3_vl2.wav", 1.0), (CG + "Bongos/BongoL_HitMuted2_v3_rr*_Mid.wav", 0.45)],
+    [(WB + "wood_click_f_rr*.wav", 1.0), (CG + "Bongos/BongoH_HitMuted1_v3_rr*_Mid.wav", 0.4)],
+    [(VC + "Claves/Claves1_Hit_v3_rr1_Mid.wav", 0.8), (WB + "wood_click_f_rr*.wav", 0.35)],
+    [(VC + "Claves/Claves2_Hit_v3_rr1_Mid.wav", 0.8), (WB + "wood_click_f_rr*.wav", 0.3)],
+    [(WB + "wood_click2_mp.wav", 1.0), (VC + "Claves/Claves2_Hit_v3_rr1_Mid.wav", 0.35)],
 ]
 
 
+def norm(x):
+    return x / (np.abs(x).max() + 1e-9)
+
+
 def tap(t, lvl, g=1.0, accent=False):
+    if os.environ.get("NO_TAPS"):  # used to render a comparison mix without the taps
+        return
     for path, gain in TAPS[lvl]:
-        place("taps", pick(path), t + hum(1.5), gain * g, pan=-0.2 + 0.1 * lvl, length=0.35, release=0.08)
-    if accent:  # a rocky knock on top: cajon slap + a little wood
-        place("taps", pick(VC + "Cajon/Cajon_hit1_f_rr*.wav"), t, 0.35 * g, pan=0.05, length=0.2)
-        place("taps", pick(VC + "Woodblock/wood_click_mp.wav"), t, 0.12 * g, pan=0.15, length=0.12)
+        place("taps", norm(pick(path)), t, gain * g, pan=-0.08 + 0.04 * lvl, length=0.18, release=0.05)
+    if accent:  # a rocky knock under it: cajon slap
+        place("taps", norm(pick(VC + "Cajon/Cajon_hit1_f_rr*.wav")), t, 0.5 * g, length=0.16)
 
 
 BB = "karoryfer.black-and-blue-basses/Samples/darkblack/"
@@ -248,10 +255,20 @@ def T(step):
     return step * S16
 
 
+# while words type out, the groove steps back so every tap reads
+TYPING = [(3.2, 4.1), (5.33, 5.95)]
+
+
 def main_groove(t0, t1, density=1.0):
     """Live funk kit on the global 16th grid (bar = 16 steps from t=0)."""
     for step in range(int(round(t0 / S16)), int(round(t1 / S16))):
         t, s = T(step), step % 16
+        if any(a <= t < b for a, b in TYPING):
+            if s in (0, 7, 10):
+                kick(t, 3, 0.85)
+            if s in (4, 12):
+                snare(t, 22, 0.55)
+            continue
         if s in (0, 7, 10):
             kick(t, 4 if s == 0 else 3)
         if s in (4, 12):
@@ -310,7 +327,7 @@ for st in range(0, 12):
 # --- 1.5 - 2.75: "AI made this."
 stab(1.5, EM9, 1.0, "E2"); clap(1.5, 0.7)
 tap(1.625, 2, 0.85); hat(1.625, 2)
-tap(1.75, 4, 1.0, accent=True); snare(1.75, 30)
+tap(1.75, 4, 1.15, accent=True)
 main_groove(2.0, 6.5)
 bass_line(2.0, 6.5)
 tamb(2.0, 1.0, "Hit_v2")
@@ -324,12 +341,10 @@ for i, lvl in enumerate([0, 1, 2, 3, 4, 3, 2]):
 # --- 4.75 - 6.0: "We call it a cracker." — the bloom gets the horn
 for i, (t, lvl) in enumerate(zip([4.75, 4.875, 5.0, 5.125, 5.25], [1, 2, 3, 2, 4])):
     tap(t, lvl, 0.9 + 0.04 * i, accent=i == 4)
-snare(5.5, 34)
 # "…or, a motion design video" — one tap per word, falling
 for t, lvl in zip([5.375, 5.5, 5.625, 5.75, 5.875], [4, 3, 2, 1, 0]):
-    tap(t, lvl, 0.85)
-sax(5.75, "G2", 4, 0.9, length=0.16); sax(5.875, "A2", 4, 0.95, length=0.14); sax(5.75, "E3", 3, 0.5, length=0.3)
-tamb(5.75, 1.1)
+    tap(t, lvl, 1.05)
+sax(5.75, "G2", 3, 0.55, length=0.16)  # soft, so the subline taps stay on top
 
 SHIFT = 0.5
 
@@ -483,7 +498,7 @@ kickb = comp(hp(peak(peak(B["kick"], 60, 3.0, 0.9), 380, -4, 1.2), 30), -14, 3, 
 snareb = comp(peak(hp(B["snare"], 90), 200, 2, 1.0), -18, 3, 0.003, 0.1, 2)
 hatsb = shelf_hi(hp(B["hats"], 400), 9000, 1.5)
 percb = hp(B["perc"], 250)
-tapsb = comp(lp(peak(hp(B["taps"], 65), 250, -1.5, 1.0), 9000), -20, 2.5, 0.003, 0.07, 1)
+tapsb = lp(hp(B["taps"], 120), 7000)  # no compression: keep the knock's transient
 bassb = comp(lp(hp(peak(B["bass"], 90, 2.5, 0.8), 38), 4500), -18, 4, 0.004, 0.12, 3)
 # light pump from the kick on the bass, stabs and horn
 duck_key = B["kick"] * 3
@@ -503,6 +518,8 @@ def active_rms_db(x):
 
 
 def level(x, target_db):
+    if not np.abs(x).max() > 0:  # silent bus (e.g. the no-taps comparison render)
+        return x
     return x * 10 ** ((target_db - active_rms_db(x)) / 20)
 
 
@@ -511,18 +528,39 @@ kickb = level(kickb, -15.0)
 snareb = level(snareb, -19.0)
 hatsb = level(hatsb, -29.0)
 percb = level(percb, -27.0)
-tapsb = limit(level(tapsb, -20.5), -11.0)
+tapsb = limit(level(tapsb, -16.0), -5.0)
+
+
+def duck(x, key, depth_db, rel=0.09):
+    """Pull x down for a moment whenever the key hits (1 ms attack)."""
+    k = np.abs(key).max(1)
+    k = k / (k.max() + 1e-9)
+    a_, r = np.exp(-1 / (0.001 * SR)), np.exp(-1 / (rel * SR))
+    env = np.empty_like(k); e = 0.0
+    for i, v in enumerate(k):
+        e = a_ * e + (1 - a_) * v if v > e else r * e + (1 - r) * v
+        env[i] = e
+    return x * (10 ** (-depth_db * np.clip(env * 3, 0, 1) / 20))[:, None]
+
+
+# make a hole for every tap: hats / shaker / tambourine dip hard, the band a little
+hatsb = duck(hatsb, tapsb, 9)
+percb = duck(percb, tapsb, 12)
+snareb = duck(snareb, tapsb, 8)
+gtrb = duck(gtrb, tapsb, 6)
+saxb = duck(saxb, tapsb, 5)
+bassb = duck(bassb, tapsb, 3)
 fxb = level(fxb, -27.0)
 bassb = level(bassb, -17.0)
 gtrb = level(gtrb, -23.5)
 gtrb = limit(gtrb, -12.0)
 saxb = level(saxb, -18.5)
 
-drums = kickb + snareb + hatsb + percb + tapsb + fxb
-drums = comp(sat(drums, 1.3), -12, 2.5, 0.003, 0.08, 1.5)
+drums = kickb + snareb + hatsb + percb + fxb
+drums = comp(sat(drums, 1.3), -12, 2.5, 0.003, 0.08, 1.5) + tapsb
 music = bassb + gtrb + saxb
 mix = drums + music
-mix += verb(snareb * 0.6 + gtrb * 0.5 + saxb * 0.6 + percb * 0.4 + tapsb * 0.35, 0.28)
+mix += verb(snareb * 0.6 + gtrb * 0.5 + saxb * 0.6 + percb * 0.4 + tapsb * 0.12, 0.28)
 
 # master: glue, gentle tilt, soft clip, loudness
 mix = comp(mix, -10, 2.0, 0.01, 0.15, 1.0)
@@ -545,6 +583,9 @@ try:
     import pyloudnorm as pyln
     meter = pyln.Meter(SR)
     lufs = meter.integrated_loudness(mix)
+    if os.environ.get("LUFS_REF"):
+        lufs = float(os.environ["LUFS_REF"])
+    print("measured LUFS before gain: %.3f" % meter.integrated_loudness(mix))
     mix *= 10 ** ((-16.0 - lufs) / 20)
 except Exception:
     mix /= np.abs(mix).max() / 0.7
