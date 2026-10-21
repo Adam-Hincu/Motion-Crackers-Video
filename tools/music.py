@@ -12,7 +12,6 @@ import glob, os, subprocess, sys
 import numpy as np
 import soundfile as sf
 from scipy import signal
-from scipy.ndimage import minimum_filter1d
 
 SR = 48000
 DUR = 15.0
@@ -98,9 +97,7 @@ def bus():
     return np.zeros((int(DUR * SR) + SR * 3, 2), np.float32)
 
 
-B = {k: bus() for k in ["kick", "snare", "hats", "perc", "taps", "bass", "gtr", "sax", "fx"]}
-# picture holds scene 4 for an extra 0.5 s; everything authored after it is pushed by SHIFT
-SHIFT = 0.0
+B = {k: bus() for k in ["kick", "snare", "hats", "perc", "bass", "gtr", "sax", "fx"]}
 
 
 def place(name, x, t, gain=1.0, pan=0.0, length=None, release=0.04):
@@ -113,7 +110,7 @@ def place(name, x, t, gain=1.0, pan=0.0, length=None, release=0.04):
         y = x
     l = np.cos((pan + 1) * np.pi / 4) * np.sqrt(2)
     r_ = np.sin((pan + 1) * np.pi / 4) * np.sqrt(2)
-    i = int(round((t + SHIFT) * SR))
+    i = int(round(t * SR))
     if i < 0:
         y = y[-i:]; i = 0
     j = min(len(B[name]), i + len(y))
@@ -176,32 +173,6 @@ def perc(t, path, g=1.0, pan=0.0, length=None):
     place("perc", pick(VC + path), t, g, pan=pan, length=length)
 
 
-# Word / letter taps: woodblocks and claves, low to high, each with a little
-# hand-drum body. They live at 1.3 - 2.9 kHz, above the kick, bass and snare.
-CG = "vcsl/Membranophones/Struck Membranophones/"
-WB = VC + "Woodblock/"
-TAPS = [
-    [(WB + "wood_click3_vl2.wav", 1.0), (CG + "Bongos/BongoL_HitMuted2_v3_rr*_Mid.wav", 0.45)],
-    [(WB + "wood_click_f_rr*.wav", 1.0), (CG + "Bongos/BongoH_HitMuted1_v3_rr*_Mid.wav", 0.4)],
-    [(VC + "Claves/Claves1_Hit_v3_rr1_Mid.wav", 0.8), (WB + "wood_click_f_rr*.wav", 0.35)],
-    [(VC + "Claves/Claves2_Hit_v3_rr1_Mid.wav", 0.8), (WB + "wood_click_f_rr*.wav", 0.3)],
-    [(WB + "wood_click2_mp.wav", 1.0), (VC + "Claves/Claves2_Hit_v3_rr1_Mid.wav", 0.35)],
-]
-
-
-def norm(x):
-    return x / (np.abs(x).max() + 1e-9)
-
-
-def tap(t, lvl, g=1.0, accent=False):
-    if os.environ.get("NO_TAPS"):  # used to render a comparison mix without the taps
-        return
-    for path, gain in TAPS[lvl]:
-        place("taps", norm(pick(path)), t, gain * g, pan=-0.08 + 0.04 * lvl, length=0.18, release=0.05)
-    if accent:  # a rocky knock under it: cajon slap
-        place("taps", norm(pick(VC + "Cajon/Cajon_hit1_f_rr*.wav")), t, 0.5 * g, length=0.16)
-
-
 BB = "karoryfer.black-and-blue-basses/Samples/darkblack/"
 
 
@@ -230,10 +201,8 @@ def gtr(t, notes, g=1.0, strum=0.007, ring=None, up=False, length=0.15):
             x = pick(f"{GG}ord/twang_{n}_f_rr*.wav")
             place("gtr", x, t + k * strum, 0.32 * g, pan=0.3, length=ring, release=0.35)
         else:
-            x = pick(f"{GG}stac/staccato_{n}_rr*.wav").copy()
-            a = int(0.004 * SR)  # round off the pick click
-            x[:a] *= np.linspace(0, 1, a)[:, None]
-            place("gtr", x, t + k * strum + hum(2), (0.34 if len(notes) == 1 else 0.22) * g, pan=0.3, length=length, release=0.06)
+            x = pick(f"{GG}stac/staccato_{n}_rr*.wav")
+            place("gtr", x, t + k * strum + hum(2), 0.34 * g, pan=0.3, length=length, release=0.06)
 
 
 BS = "karoryfer.bear-sax/Samples/"
@@ -255,20 +224,10 @@ def T(step):
     return step * S16
 
 
-# while words type out, the groove steps back so every tap reads
-TYPING = [(3.2, 4.1), (5.33, 5.95)]
-
-
 def main_groove(t0, t1, density=1.0):
     """Live funk kit on the global 16th grid (bar = 16 steps from t=0)."""
     for step in range(int(round(t0 / S16)), int(round(t1 / S16))):
         t, s = T(step), step % 16
-        if any(a <= t < b for a, b in TYPING):
-            if s in (0, 7, 10):
-                kick(t, 3, 0.85)
-            if s in (4, 12):
-                snare(t, 22, 0.55)
-            continue
         if s in (0, 7, 10):
             kick(t, 4 if s == 0 else 3)
         if s in (4, 12):
@@ -307,8 +266,7 @@ def gtr_pattern(t0, t1):
 
 
 def stab(t, chord=None, g=1.0, bass_note=None, k=True):
-    tap(t, 0, g, accent=True)
-    tap(t, 3, 0.7 * g)
+    gtr(t, chord or chord_at(t), g)
     if bass_note:
         bass(t, bass_note, 0.16, "stac")
     if k:
@@ -326,29 +284,26 @@ for st in range(0, 12):
 
 # --- 1.5 - 2.75: "AI made this."
 stab(1.5, EM9, 1.0, "E2"); clap(1.5, 0.7)
-tap(1.625, 2, 0.85); hat(1.625, 2)
-tap(1.75, 4, 1.15, accent=True)
-main_groove(2.0, 6.5)
-bass_line(2.0, 6.5)
+gtr(1.625, EM9, 0.75, up=True); hat(1.625, 2)
+gtr(1.75, A13, 0.9); snare(1.75, 30)
+main_groove(2.0, 6.0)
+bass_line(2.0, 6.0)
 tamb(2.0, 1.0, "Hit_v2")
 
 # --- 2.75 - 4.75: "From one prompt." + the prompt, word by word
-stab(2.75, EM9, 1.0, None, k=False); tap(2.875, 2, 0.85); tap(3.0, 3, 1.0, accent=True)
-# the prompt types out as a little tap melody
-for i, lvl in enumerate([0, 1, 2, 3, 4, 3, 2]):
-    tap(3.25 + i * S16, lvl, 0.9 + 0.03 * i)
+stab(2.75, EM9, 1.0, None, k=False); gtr(2.875, EM9, 0.7, up=True); gtr(3.0, A13, 0.95)
+riff = ["E4", "G4", "A4", "B4", "D5", "B4", "A4"]
+for i, note in enumerate(riff):
+    gtr(3.25 + i * S16, [note], 1.1 + 0.05 * i, length=0.2)
 
 # --- 4.75 - 6.0: "We call it a cracker." — the bloom gets the horn
-for i, (t, lvl) in enumerate(zip([4.75, 4.875, 5.0, 5.125, 5.25], [1, 2, 3, 2, 4])):
-    tap(t, lvl, 0.9 + 0.04 * i, accent=i == 4)
-# "…or, a motion design video" — one tap per word, falling
-for t, lvl in zip([5.375, 5.5, 5.625, 5.75, 5.875], [4, 3, 2, 1, 0]):
-    tap(t, lvl, 1.05)
-sax(5.75, "G2", 3, 0.55, length=0.16)  # soft, so the subline taps stay on top
+for i, t in enumerate([4.75, 4.875, 5.0, 5.125, 5.25]):
+    gtr(t, chord_at(t), 0.8 + 0.06 * i, up=i % 2 == 1)
+snare(5.5, 34)
+sax(5.75, "G2", 4, 0.9, length=0.16); sax(5.875, "A2", 4, 0.95, length=0.14); sax(5.75, "E3", 3, 0.5, length=0.3)
+tamb(5.75, 1.1)
 
-SHIFT = 0.5
-
-# --- 6.0 - 6.5 (+SHIFT): stop. Reverse cymbal pulls into the drop.
+# --- 6.0 - 6.5: stop. Reverse cymbal pulls into the drop.
 rc = np.ascontiguousarray(pick(f"{VD}mid/crash/mid_crash_crash_vl3_rr1.flac")[: int(1.6 * SR)][::-1])
 swell = rc[-int(0.5 * SR):].copy()
 cut = int(0.03 * SR)  # silence the last 30 ms so the drop hits into air
@@ -384,25 +339,26 @@ for st in range(80, 92):
     shaker(t, 0.6)
 snare(11.0, 28, 0.85); kick(10.75, 3, 0.8); kick(11.25, 3, 0.7)
 bass(10.75, "G2", 0.2, "stac"); bass(11.0, "A2", 0.4, "reg", "mf")
-for i, lvl in enumerate([0, 1, 2, 3, 2, 4]):
-    tap(10.25 + i * S16, lvl, 0.85, accent=i == 5)
+for i, note in enumerate(["B3", "D4", "E4", "G4", "A4", "B4"]):
+    gtr(10.25 + i * S16, [note], 0.95, length=0.2)
 
 # --- 11.5 - 12.75: "Copy it." / "Make your own."
 stab(11.75, EM9, 1.15, "E2"); clap(11.75, 1.0); sax(11.75, "E3", 4, 0.8, length=0.18); snare(11.75, 30, 0.6)
 perc(11.8, "Guiro/Guiro_Fast_rr1_Mid.wav", 0.6, pan=-0.2, length=0.45)
 tom(12.0, "ltom", 14, 0.8)
 stab(12.25, A13, 1.1, "A2"); clap(12.25, 0.9)
-tap(12.375, 3, 0.9); bass(12.375, "B2", 0.1, "stac")
+gtr(12.375, A13, 0.9, up=True); bass(12.375, "B2", 0.1, "stac")
 stab(12.5, EM9, 1.1, "D3"); snare(12.5, 32)
 perc(12.5, "Tambourine 1/Tamb1_Roll_v2_rr1_Mid.wav", 0.5, pan=0.3, length=0.3)
 
-# --- 12.8 - 13.5: the glitch. Scattered taps on 32nds, getting louder.
+# --- 12.8 - 13.5: the glitch. Chopped chord tones on 32nds, getting louder.
+pool = ["G3", "B3", "D4", "E4", "Gb4", "A4", "B4"]
 t = 12.8
 i = 0
 while t < 13.42:
     g = 0.7 + 0.8 * (t - 12.8) / 0.62
     if rand.random() < 0.82:
-        tap(t, int(rand.integers(1, 5)), 0.55 * g)
+        gtr(t, [pool[int(rand.integers(len(pool)))]], g * 0.9, length=0.07)
     if i % 2 == 0:
         hat(t, 2, 0.45 * g)
     if rand.random() < 0.25:
@@ -457,21 +413,6 @@ def comp(x, thr_db, ratio, att=0.005, rel=0.08, makeup_db=0.0, key=None):
     return x * g[:, None]
 
 
-def limit(x, ceil_db, look=0.003, rel=0.06):
-    """Look-ahead peak limiter: gain dips smoothly ahead of each peak, never past the ceiling."""
-    ceil = 10 ** (ceil_db / 20)
-    need = np.minimum(1.0, ceil / np.maximum(np.abs(x).max(1), 1e-9))
-    n = int(look * SR)
-    g = minimum_filter1d(need, size=2 * n + 1)
-    a_, r = np.exp(-1 / (look * SR / 3)), np.exp(-1 / (rel * SR))
-    sm = np.empty_like(g)
-    e = 1.0
-    for i, v in enumerate(g):
-        e = a_ * e + (1 - a_) * v if v < e else r * e + (1 - r) * v
-        sm[i] = e
-    return x * np.minimum(sm, g)[:, None]
-
-
 def sat(x, drive=1.5):
     return np.tanh(x * drive) / np.tanh(drive)
 
@@ -498,14 +439,11 @@ kickb = comp(hp(peak(peak(B["kick"], 60, 3.0, 0.9), 380, -4, 1.2), 30), -14, 3, 
 snareb = comp(peak(hp(B["snare"], 90), 200, 2, 1.0), -18, 3, 0.003, 0.1, 2)
 hatsb = shelf_hi(hp(B["hats"], 400), 9000, 1.5)
 percb = hp(B["perc"], 250)
-tapsb = lp(hp(B["taps"], 120), 7000)  # no compression: keep the knock's transient
 bassb = comp(lp(hp(peak(B["bass"], 90, 2.5, 0.8), 38), 4500), -18, 4, 0.004, 0.12, 3)
 # light pump from the kick on the bass, stabs and horn
 duck_key = B["kick"] * 3
 bassb = comp(bassb, -20, 3, 0.002, 0.11, 0, key=duck_key)
-gtrb = lp(lp(hp(B["gtr"], 160), 4200, 4), 4200, 2)  # these takes carry ~70% hiss above 6 kHz
-gtrb = shelf_hi(peak(gtrb, 1800, 2.0, 0.9), 3000, -3.0)
-gtrb = comp(gtrb, -22, 3, 0.004, 0.08, 1)
+gtrb = comp(peak(hp(B["gtr"], 160), 2600, 2.5, 0.9), -20, 3, 0.003, 0.08, 2)
 saxb = comp(peak(hp(sat(B["sax"], 1.8), 55), 900, 2, 0.8), -16, 3, 0.006, 0.12, 2)
 fxb = hp(B["fx"], 300)
 
@@ -518,8 +456,6 @@ def active_rms_db(x):
 
 
 def level(x, target_db):
-    if not np.abs(x).max() > 0:  # silent bus (e.g. the no-taps comparison render)
-        return x
     return x * 10 ** ((target_db - active_rms_db(x)) / 20)
 
 
@@ -528,39 +464,16 @@ kickb = level(kickb, -15.0)
 snareb = level(snareb, -19.0)
 hatsb = level(hatsb, -29.0)
 percb = level(percb, -27.0)
-tapsb = limit(level(tapsb, -16.0), -5.0)
-
-
-def duck(x, key, depth_db, rel=0.09):
-    """Pull x down for a moment whenever the key hits (1 ms attack)."""
-    k = np.abs(key).max(1)
-    k = k / (k.max() + 1e-9)
-    a_, r = np.exp(-1 / (0.001 * SR)), np.exp(-1 / (rel * SR))
-    env = np.empty_like(k); e = 0.0
-    for i, v in enumerate(k):
-        e = a_ * e + (1 - a_) * v if v > e else r * e + (1 - r) * v
-        env[i] = e
-    return x * (10 ** (-depth_db * np.clip(env * 3, 0, 1) / 20))[:, None]
-
-
-# make a hole for every tap: hats / shaker / tambourine dip hard, the band a little
-hatsb = duck(hatsb, tapsb, 9)
-percb = duck(percb, tapsb, 12)
-snareb = duck(snareb, tapsb, 8)
-gtrb = duck(gtrb, tapsb, 6)
-saxb = duck(saxb, tapsb, 5)
-bassb = duck(bassb, tapsb, 3)
 fxb = level(fxb, -27.0)
 bassb = level(bassb, -17.0)
-gtrb = level(gtrb, -23.5)
-gtrb = limit(gtrb, -12.0)
+gtrb = level(gtrb, -22.5)
 saxb = level(saxb, -18.5)
 
 drums = kickb + snareb + hatsb + percb + fxb
-drums = comp(sat(drums, 1.3), -12, 2.5, 0.003, 0.08, 1.5) + tapsb
+drums = comp(sat(drums, 1.3), -12, 2.5, 0.003, 0.08, 1.5)
 music = bassb + gtrb + saxb
 mix = drums + music
-mix += verb(snareb * 0.6 + gtrb * 0.5 + saxb * 0.6 + percb * 0.4 + tapsb * 0.12, 0.28)
+mix += verb(snareb * 0.6 + gtrb * 0.5 + saxb * 0.6 + percb * 0.4, 0.28)
 
 # master: glue, gentle tilt, soft clip, loudness
 mix = comp(mix, -10, 2.0, 0.01, 0.15, 1.0)
@@ -568,7 +481,7 @@ mix = shelf_hi(mix, 11000, 1.0)
 
 # section rides: verse sits under the drop, the card section breathes so the text can be read
 ride_db = np.zeros(len(mix))
-for t0, t1, db in [(1.98, 6.48, -1.8), (10.48, 12.2, -3.5)]:
+for t0, t1, db in [(1.98, 5.98, -1.8), (9.98, 11.7, -3.5)]:
     a_, b_ = int(t0 * SR), int(t1 * SR)
     ride_db[a_:b_] = db
 k = int(0.02 * SR)
@@ -583,16 +496,10 @@ try:
     import pyloudnorm as pyln
     meter = pyln.Meter(SR)
     lufs = meter.integrated_loudness(mix)
-    if os.environ.get("LUFS_REF"):
-        lufs = float(os.environ["LUFS_REF"])
-    print("measured LUFS before gain: %.3f" % meter.integrated_loudness(mix))
-    mix *= 10 ** ((-16.0 - lufs) / 20)
+    mix *= 10 ** ((-14.0 - lufs) / 20)
 except Exception:
     mix /= np.abs(mix).max() / 0.7
-pre = np.abs(mix).max(1)
-mix = limit(mix, -1.0)
-gr = 20 * np.log10(np.maximum(np.abs(mix).max(1), 1e-9) / np.maximum(pre, 1e-9))
-print("master limiter: max gain reduction %.1f dB" % -gr[pre > 1e-3].min())
+mix = np.tanh(mix * 1.2) / 1.2  # soft clip
 mix = np.clip(mix / max(1.0, np.abs(mix).max() / 0.96), -1, 1)
 sf.write(OUT, mix.astype(np.float32), SR, subtype="PCM_24")
 print("wrote", OUT, "peak", round(20 * np.log10(np.abs(mix).max()), 2), "dBFS")

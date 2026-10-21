@@ -262,7 +262,7 @@
       <div id="bg" class="clip" data-start="0" data-duration="15" data-track-index="0"></div>
 
       <!-- Scenes 1-4: the shape, then the sentences it punctuates -->
-      <section id="sText" class="clip" data-start="0" data-duration="7.0" data-track-index="1">
+      <section id="sText" class="clip" data-start="0" data-duration="6.5" data-track-index="1">
         <div id="flood"></div>
         <div class="line big" id="L1" style="top: 465px">
           <span class="w"><span class="wi">AI</span></span><span class="sp"></span><span class="w"><span class="wi">made</span></span><span class="sp"></span><span class="w"><span class="wi">this</span></span><span class="slot" id="slot1">.</span>
@@ -283,12 +283,12 @@
       </section>
 
       <!-- Scenes 5-6: the gallery wall, then the wall seen through type -->
-      <section id="sWall" class="clip" data-start="7.0" data-duration="3.6" data-track-index="2">
+      <section id="sWall" class="clip" data-start="6.5" data-duration="3.6" data-track-index="2">
         <div id="wallMask"><div id="wall"></div></div>
       </section>
 
       <!-- Scenes 7-8: one cracker turns over to show its prompt -->
-      <section id="sCard" class="clip" data-start="10.6" data-duration="3.0" data-track-index="3">
+      <section id="sCard" class="clip" data-start="10.1" data-duration="3.0" data-track-index="3">
         <div class="line head" id="H1" style="top: 128px">
           <span class="w"><span class="wi">Each</span></span><span class="sp"></span><span class="w"><span class="wi">one</span></span><span class="sp"></span><span class="w"><span class="wi">comes</span></span><span class="sp"></span><span class="w"><span class="wi">with</span></span><span class="sp"></span><span class="w"><span class="wi">its</span></span><span class="sp"></span><span class="w"><span class="wi">prompt.</span></span>
         </div>
@@ -308,7 +308,7 @@
       </section>
 
       <!-- Scene 9: the brand -->
-      <section id="sEnd" class="clip" data-start="13.0" data-duration="2.0" data-track-index="4">
+      <section id="sEnd" class="clip" data-start="12.5" data-duration="2.5" data-track-index="4">
         <div id="logo">
           <svg id="mark" viewBox="0 0 24 24"><path id="markPath" fill="#0a0a0a" d="M12 6.4a5.6 5.6 0 1 1 0 11.2a5.6 5.6 0 1 1 0-11.2z" /></svg>
           <div id="word"></div>
@@ -659,7 +659,7 @@
         wordsOut(tl, "#L2", 4.55);
         wordsOut(tl, "#LP", 4.5, 1);
         wordsIn(tl, "#L3", [4.75, 4.875, 5.0, 5.125, 5.25]);
-        wordsIn(tl, "#LS", [5.375, 5.5, 5.625, 5.75, 5.875], 0.45);
+        wordsIn(tl, "#LS", [5.0, 5.125, 5.25, 5.375, 5.5], 0.45);
         tl.to(hero, { x: s3.x - 50, duration: 0.75, ease: "power3.inOut" }, 4.75);
         tl.to(hero, { keyframes: [{ y: s3.y - 50 - 160, duration: 0.37, ease: "power2.out" }, { y: s3.y - 50, duration: 0.38, ease: "power2.in" }] }, 4.75);
         tl.to(hero, { scale: pScale(s3), rotation: 540, duration: 0.75, ease: "power3.inOut" }, 4.75);
@@ -868,14 +868,7 @@
         });
         // settle hit, then a slow living push-in to the end
         tl.fromTo("#logo", { scale: 1 }, { keyframes: [{ scale: 1.018, duration: 0.07, ease: "power2.out" }, { scale: 1, duration: 0.4, ease: "power3.out" }], transformOrigin: "960px 540px" }, 13.5);
-        tl.to("#logo", { scale: 1.03, duration: 0.53, ease: "sine.inOut", transformOrigin: "960px 540px" }, 13.97);
-
-        // Hold scene 4 half a second longer so its subline can be read: everything
-        // authored from the break onward plays 0.5 s later (the music does the same).
-        const HOLD = 0.5;
-        tl.getChildren(false, true, true).forEach((c) => {
-          if (c.startTime() >= 5.999) c.startTime(c.startTime() + HOLD);
-        });
+        tl.to("#logo", { scale: 1.035, duration: 1.0, ease: "sine.inOut", transformOrigin: "960px 540px" }, 13.97);
 
         window.__timelines["main"] = tl;
         if (window.__hfForceTimelineRebind) window.__hfForceTimelineRebind();
