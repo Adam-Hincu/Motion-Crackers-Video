@@ -14,7 +14,7 @@ import soundfile as sf
 from scipy import signal
 
 SR = 48000
-DUR = 15.0
+DUR = 16.5
 BEAT = 0.5
 S16 = BEAT / 4
 
@@ -286,6 +286,18 @@ for st in range(0, 12):
 stab(1.5, EM9, 1.0, "E2"); clap(1.5, 0.7)
 gtr(1.625, EM9, 0.75, up=True); hat(1.625, 2)
 gtr(1.75, A13, 0.9); snare(1.75, 30)
+
+
+def extra(seed, fn):
+    """Events added after the first cut draw from their own RNG, so every
+    original hit keeps its exact take, timing and humanisation."""
+    global rand
+    keep, rand = rand, np.random.default_rng(seed)
+    fn()
+    rand = keep
+
+
+extra(101, lambda: (gtr(1.875, EM9, 0.8, up=True), hat(1.875, 2)))  # "video"
 main_groove(2.0, 6.0)
 bass_line(2.0, 6.0)
 tamb(2.0, 1.0, "Hit_v2")
@@ -368,9 +380,11 @@ while t < 13.42:
 
 # --- 13.5: the logo lands. Everything on one hit, then let it ring.
 kick(13.5, 4, 1.05); crash(13.5, 3, 0.9); clap(13.5, 0.9); tamb(13.5, 1.0)
-bass(13.5, "E2", 1.4, "reg", "f")
-sax(13.5, "E1", 4, 0.75); sax(13.5, "E2", 4, 0.9); sax(13.52, "E2", 4, 0.75, length=1.3, sustain=True)
-gtr(13.5, ["E3", "B3", "D4", "Gb4", "B4"], 1.0, strum=0.012, ring=1.45)
+bass(13.5, "E2", 2.6, "reg", "f")
+sax(13.5, "E1", 4, 0.75); sax(13.5, "E2", 4, 0.9); sax(13.52, "E2", 4, 0.75, length=2.1, sustain=True)
+gtr(13.5, ["E3", "B3", "D4", "Gb4", "B4"], 1.0, strum=0.012, ring=2.9)
+# the link rises in: one soft, slow strum over the ringing chord
+extra(102, lambda: (gtr(14.75, ["B3", "D4", "Gb4", "B4"], 0.45, strum=0.03, ring=1.7, up=True), bass(14.75, "B2", 1.6, "reg", "mf", 0.5)))
 
 
 # ---------------------------------------------------------------- mix
@@ -489,13 +503,13 @@ ride_db = np.convolve(ride_db, np.ones(k) / k, "same")
 mix *= (10 ** (ride_db / 20))[:, None]
 mix = mix[: int(DUR * SR)]
 # fade the very end so the ring-out closes cleanly with the picture
-fo = int(0.45 * SR)
+fo = int(0.7 * SR)
 mix[-fo:] *= np.linspace(1, 0, fo)[:, None] ** 1.5
 
 try:
     import pyloudnorm as pyln
     meter = pyln.Meter(SR)
-    lufs = meter.integrated_loudness(mix)
+    lufs = meter.integrated_loudness(mix[: int(15.0 * SR)])  # same reference window as the first cut
     mix *= 10 ** ((-14.0 - lufs) / 20)
 except Exception:
     mix /= np.abs(mix).max() / 0.7

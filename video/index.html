@@ -219,6 +219,19 @@
         width: 1920px;
         height: 1080px;
       }
+      #url {
+        position: absolute;
+        left: 0;
+        top: 596px;
+        width: 1920px;
+        display: flex;
+        justify-content: center;
+        font-size: 48px;
+        font-weight: 450;
+        letter-spacing: -0.015em;
+        line-height: 1;
+        color: var(--muted);
+      }
       #mark {
         position: absolute;
         width: 170px;
@@ -258,14 +271,14 @@
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="main" data-start="0" data-duration="15" data-width="1920" data-height="1080">
-      <div id="bg" class="clip" data-start="0" data-duration="15" data-track-index="0"></div>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="16.5" data-width="1920" data-height="1080">
+      <div id="bg" class="clip" data-start="0" data-duration="16.5" data-track-index="0"></div>
 
       <!-- Scenes 1-4: the shape, then the sentences it punctuates -->
       <section id="sText" class="clip" data-start="0" data-duration="6.5" data-track-index="1">
         <div id="flood"></div>
         <div class="line big" id="L1" style="top: 465px">
-          <span class="w"><span class="wi">AI</span></span><span class="sp"></span><span class="w"><span class="wi">made</span></span><span class="sp"></span><span class="w"><span class="wi">this</span></span><span class="slot" id="slot1">.</span>
+          <span class="w"><span class="wi">AI</span></span><span class="sp"></span><span class="w"><span class="wi">made</span></span><span class="sp"></span><span class="w"><span class="wi">this</span></span><span class="sp"></span><span class="w"><span class="wi">video</span></span><span class="slot" id="slot1">.</span>
         </div>
         <div class="line mid" id="L2" style="top: 388px">
           <span class="w"><span class="wi">From</span></span><span class="sp"></span><span class="w"><span class="wi">one</span></span><span class="sp"></span><span class="w"><span class="wi">prompt</span></span><span class="slot" id="slot2">.</span>
@@ -308,14 +321,15 @@
       </section>
 
       <!-- Scene 9: the brand -->
-      <section id="sEnd" class="clip" data-start="12.5" data-duration="2.5" data-track-index="4">
+      <section id="sEnd" class="clip" data-start="12.5" data-duration="4.0" data-track-index="4">
         <div id="logo">
           <svg id="mark" viewBox="0 0 24 24"><path id="markPath" fill="#0a0a0a" d="M12 6.4a5.6 5.6 0 1 1 0 11.2a5.6 5.6 0 1 1 0-11.2z" /></svg>
           <div id="word"></div>
+          <div id="url"><span class="w"><span class="wi">motioncrackers.com</span></span></div>
         </div>
       </section>
 
-      <audio id="music" src="assets/music.wav" data-start="0" data-duration="15" data-track-index="9"></audio>
+      <audio id="music" src="assets/music.wav" data-start="0" data-duration="16.5" data-track-index="9"></audio>
     </div>
 
     <script>
@@ -638,7 +652,7 @@
         const s3 = measureSlot("slot3", 140);
         const pScale = (s) => s.size / 38; // square half-size 19 => side 38 units
 
-        wordsIn(tl, "#L1", [1.5, 1.625, 1.75]);
+        wordsIn(tl, "#L1", [1.5, 1.625, 1.75, 1.875]);
         tl.to(heroPath, { morphSVG: morph("square"), duration: 0.4, ease: "power2.inOut" }, 1.55);
         tl.to(hero, { x: s1.x - 50, duration: 0.45, ease: "expo.inOut" }, 1.55);
         tl.to(hero, { y: s1.y - 50, duration: 0.45, ease: "power4.inOut" }, 1.55);
@@ -868,7 +882,12 @@
         });
         // settle hit, then a slow living push-in to the end
         tl.fromTo("#logo", { scale: 1 }, { keyframes: [{ scale: 1.018, duration: 0.07, ease: "power2.out" }, { scale: 1, duration: 0.4, ease: "power3.out" }], transformOrigin: "960px 540px" }, 13.5);
-        tl.to("#logo", { scale: 1.035, duration: 1.0, ease: "sine.inOut", transformOrigin: "960px 540px" }, 13.97);
+        tl.to("#logo", { scale: 1.045, duration: 2.53, ease: "sine.inOut", transformOrigin: "960px 540px" }, 13.97);
+
+        // the link: the lockup eases up a touch and the address rises in quietly beneath it
+        tl.to(["#mark", "#word"], { y: -34, duration: 0.7, ease: "power3.inOut" }, 14.55);
+        tl.fromTo("#url .wi", { yPercent: 150 }, { yPercent: 0, duration: 0.8, ease: "expo.out", immediateRender: false }, 14.75);
+        tl.fromTo("#url", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power1.out", immediateRender: false }, 14.75);
 
         window.__timelines["main"] = tl;
         if (window.__hfForceTimelineRebind) window.__hfForceTimelineRebind();
