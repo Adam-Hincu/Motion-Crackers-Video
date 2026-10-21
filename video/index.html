@@ -198,9 +198,9 @@
       .ptext {
         position: absolute;
         left: 96px;
-        top: 150px;
+        top: 196px;
         width: 908px;
-        font-size: 76px;
+        font-size: 94px;
         font-weight: 500;
         line-height: 1.16;
         letter-spacing: -0.025em;
@@ -273,8 +273,11 @@
         <div class="line prompt" id="LP" style="top: 600px">
           <span class="w"><span class="wi">“a</span></span><span class="sp"></span><span class="w"><span class="wi">dot</span></span><span class="sp"></span><span class="w"><span class="wi">that</span></span><span class="sp"></span><span class="w"><span class="wi">blooms</span></span><span class="sp"></span><span class="w"><span class="wi">into</span></span><span class="sp"></span><span class="w"><span class="wi">a</span></span><span class="sp"></span><span class="w"><span class="wi">flower”</span></span>
         </div>
-        <div class="line mid" id="L3" style="top: 470px">
+        <div class="line mid" id="L3" style="top: 400px">
           <span class="w"><span class="wi">We</span></span><span class="sp"></span><span class="w"><span class="wi">call</span></span><span class="sp"></span><span class="w"><span class="wi">it</span></span><span class="sp"></span><span class="w"><span class="wi">a</span></span><span class="sp"></span><span class="w"><span class="wi">cracker</span></span><span class="slot" id="slot3">.</span>
+        </div>
+        <div class="line prompt" id="LS" style="top: 600px">
+          <span class="w"><span class="wi">or,</span></span><span class="sp"></span><span class="w"><span class="wi">motion</span></span><span class="sp"></span><span class="w"><span class="wi">design</span></span>
         </div>
         <svg id="hero" viewBox="0 0 100 100"><path id="heroPath" d="" fill="#0a0a0a" /></svg>
       </section>
@@ -656,6 +659,7 @@
         wordsOut(tl, "#L2", 4.55);
         wordsOut(tl, "#LP", 4.5, 1);
         wordsIn(tl, "#L3", [4.75, 4.875, 5.0, 5.125, 5.25]);
+        wordsIn(tl, "#LS", [5.375, 5.5, 5.625], 0.45);
         tl.to(hero, { x: s3.x - 50, duration: 0.75, ease: "power3.inOut" }, 4.75);
         tl.to(hero, { keyframes: [{ y: s3.y - 50 - 160, duration: 0.37, ease: "power2.out" }, { y: s3.y - 50, duration: 0.38, ease: "power2.in" }] }, 4.75);
         tl.to(hero, { scale: pScale(s3), rotation: 540, duration: 0.75, ease: "power3.inOut" }, 4.75);
@@ -668,6 +672,7 @@
 
         // ===== Break (6.0 - 6.5): the flower takes the frame, yellow floods in =====
         wordsOut(tl, "#L3", 6.0, 1);
+        wordsOut(tl, "#LS", 6.0, 1);
         tl.to(hero, { ...at(C.x, C.y), scale: 4, rotation: 675, duration: 0.3, ease: "power3.inOut" }, 6.0);
         tl.to("#flood", { scale: 26, duration: 0.32, ease: "power2.in" }, 6.18);
         tl.to(hero, { scale: (TILE_W * 9) / 100, rotation: 720, duration: 0.2, ease: "power2.in" }, 6.3);
@@ -758,13 +763,13 @@
         front.innerHTML = `<svg viewBox="0 0 100 ${(100 * 9) / 16}" preserveAspectRatio="none">${frontMarkup}</svg>`;
         frontAnim(tl, front, 6.5, 12.6);
 
-        const promptWords = "“An orange ball bouncing on a blue floor, squashing on every beat.”".split(" ");
+        const promptWords = "“An orange ball bouncing to the beat.”".split(" ");
         const fill = (el) => (el.innerHTML = promptWords.map((w) => `<span class="pw">${w}</span>`).join(" "));
         fill(document.getElementById("backText"));
         fill(document.getElementById("copyText"));
         const copyText = document.getElementById("copyText");
         copyText.style.left = 410 + 96 + "px";
-        copyText.style.top = 290.625 + 150 + "px";
+        copyText.style.top = 290.625 + 196 + "px";
 
         const cardInner = document.getElementById("cardInner");
         const cardWrap = document.getElementById("cardWrap");
@@ -789,7 +794,7 @@
 
         // the prompt collapses into one dot at the frame centre
         const pws = gsap.utils.toArray("#copyText .pw");
-        const ctRect = { left: 410 + 96, top: 290.625 + 150 + 30 };
+        const ctRect = { left: 410 + 96, top: 290.625 + 196 + 30 };
         pws.forEach((w, i) => {
           const cx = ctRect.left + w.offsetLeft + w.offsetWidth / 2;
           const cy = ctRect.top + w.offsetTop + w.offsetHeight / 2;

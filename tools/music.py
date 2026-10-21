@@ -12,6 +12,7 @@ import glob, os, subprocess, sys
 import numpy as np
 import soundfile as sf
 from scipy import signal
+from scipy.ndimage import minimum_filter1d
 
 SR = 48000
 DUR = 15.0
@@ -201,8 +202,10 @@ def gtr(t, notes, g=1.0, strum=0.007, ring=None, up=False, length=0.15):
             x = pick(f"{GG}ord/twang_{n}_f_rr*.wav")
             place("gtr", x, t + k * strum, 0.32 * g, pan=0.3, length=ring, release=0.35)
         else:
-            x = pick(f"{GG}stac/staccato_{n}_rr*.wav")
-            place("gtr", x, t + k * strum + hum(2), 0.34 * g, pan=0.3, length=length, release=0.06)
+            x = pick(f"{GG}stac/staccato_{n}_rr*.wav").copy()
+            a = int(0.004 * SR)  # round off the pick click
+            x[:a] *= np.linspace(0, 1, a)[:, None]
+            place("gtr", x, t + k * strum + hum(2), (0.34 if len(notes) == 1 else 0.22) * g, pan=0.3, length=length, release=0.06)
 
 
 BS = "karoryfer.bear-sax/Samples/"
@@ -300,6 +303,9 @@ for i, note in enumerate(riff):
 for i, t in enumerate([4.75, 4.875, 5.0, 5.125, 5.25]):
     gtr(t, chord_at(t), 0.8 + 0.06 * i, up=i % 2 == 1)
 snare(5.5, 34)
+# "or, motion design" — one guitar note per word, falling
+for t, note in [(5.375, "B4"), (5.5, "A4"), (5.625, "G4")]:
+    gtr(t, [note], 1.0, length=0.2)
 sax(5.75, "G2", 4, 0.9, length=0.16); sax(5.875, "A2", 4, 0.95, length=0.14); sax(5.75, "E3", 3, 0.5, length=0.3)
 tamb(5.75, 1.1)
 
@@ -413,6 +419,21 @@ def comp(x, thr_db, ratio, att=0.005, rel=0.08, makeup_db=0.0, key=None):
     return x * g[:, None]
 
 
+def limit(x, ceil_db, look=0.003, rel=0.06):
+    """Look-ahead peak limiter: gain dips smoothly ahead of each peak, never past the ceiling."""
+    ceil = 10 ** (ceil_db / 20)
+    need = np.minimum(1.0, ceil / np.maximum(np.abs(x).max(1), 1e-9))
+    n = int(look * SR)
+    g = minimum_filter1d(need, size=2 * n + 1)
+    a_, r = np.exp(-1 / (look * SR / 3)), np.exp(-1 / (rel * SR))
+    sm = np.empty_like(g)
+    e = 1.0
+    for i, v in enumerate(g):
+        e = a_ * e + (1 - a_) * v if v < e else r * e + (1 - r) * v
+        sm[i] = e
+    return x * np.minimum(sm, g)[:, None]
+
+
 def sat(x, drive=1.5):
     return np.tanh(x * drive) / np.tanh(drive)
 
@@ -443,7 +464,9 @@ bassb = comp(lp(hp(peak(B["bass"], 90, 2.5, 0.8), 38), 4500), -18, 4, 0.004, 0.1
 # light pump from the kick on the bass, stabs and horn
 duck_key = B["kick"] * 3
 bassb = comp(bassb, -20, 3, 0.002, 0.11, 0, key=duck_key)
-gtrb = comp(peak(hp(B["gtr"], 160), 2600, 2.5, 0.9), -20, 3, 0.003, 0.08, 2)
+gtrb = lp(lp(hp(B["gtr"], 160), 4200, 4), 4200, 2)  # these takes carry ~70% hiss above 6 kHz
+gtrb = shelf_hi(peak(gtrb, 1800, 2.0, 0.9), 3000, -3.0)
+gtrb = comp(gtrb, -22, 3, 0.004, 0.08, 1)
 saxb = comp(peak(hp(sat(B["sax"], 1.8), 55), 900, 2, 0.8), -16, 3, 0.006, 0.12, 2)
 fxb = hp(B["fx"], 300)
 
@@ -466,7 +489,8 @@ hatsb = level(hatsb, -29.0)
 percb = level(percb, -27.0)
 fxb = level(fxb, -27.0)
 bassb = level(bassb, -17.0)
-gtrb = level(gtrb, -22.5)
+gtrb = level(gtrb, -23.5)
+gtrb = limit(gtrb, -12.0)
 saxb = level(saxb, -18.5)
 
 drums = kickb + snareb + hatsb + percb + fxb
@@ -496,10 +520,13 @@ try:
     import pyloudnorm as pyln
     meter = pyln.Meter(SR)
     lufs = meter.integrated_loudness(mix)
-    mix *= 10 ** ((-14.0 - lufs) / 20)
+    mix *= 10 ** ((-16.0 - lufs) / 20)
 except Exception:
     mix /= np.abs(mix).max() / 0.7
-mix = np.tanh(mix * 1.2) / 1.2  # soft clip
+pre = np.abs(mix).max(1)
+mix = limit(mix, -1.0)
+gr = 20 * np.log10(np.maximum(np.abs(mix).max(1), 1e-9) / np.maximum(pre, 1e-9))
+print("master limiter: max gain reduction %.1f dB" % -gr[pre > 1e-3].min())
 mix = np.clip(mix / max(1.0, np.abs(mix).max() / 0.96), -1, 1)
 sf.write(OUT, mix.astype(np.float32), SR, subtype="PCM_24")
 print("wrote", OUT, "peak", round(20 * np.log10(np.abs(mix).max()), 2), "dBFS")
